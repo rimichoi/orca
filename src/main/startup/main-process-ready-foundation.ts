@@ -15,6 +15,7 @@ import { getAppEnvironment } from '../../shared/app-environment'
 import { loadWslMoveFence } from '../persistence/moving-wsl-projects/wsl-move-scope-guard'
 import { runWslMoveStartupRewrite } from '../persistence/moving-wsl-projects/wsl-move-startup-rewrite'
 import { registerWslMoveMainRewriteStores } from '../persistence/moving-wsl-projects/wsl-move-main-rewrite-stores'
+import { registerWslMoveRendererRewriteStores } from '../persistence/moving-wsl-projects/wsl-move-desktop-rewrite-stores'
 import { createProfileStateStoreForStartup } from '../persistence/profile-state/profile-state-startup-authority'
 import { initializeBrowserClientHostId } from '../browser/browser-client-host-id'
 import { scheduleSecretProtectionGapReport } from '../host/deferred-secret-protection-report'
@@ -156,6 +157,7 @@ export async function initializeReadyFoundation(): Promise<void> {
   state.store = store
   setNodeDistMirrorSettingReader(() => store.getSettings().nodeDistMirrorUrl)
   registerWslMoveMainRewriteStores(store)
+  registerWslMoveRendererRewriteStores()
   // Finishes a move that committed before a crash; main-process-ready waits on it, bounded.
   state.wslMoveStartupRewriteReady = runWslMoveStartupRewrite({
     userDataPath: getAppEnvironment().getPath('userData')
