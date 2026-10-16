@@ -54,6 +54,7 @@ export type RuntimeStore = {
   onStateWritten?: Store['onStateWritten']
   setWorkspaceSession?: Store['setWorkspaceSession']
   getRemoteLayoutSnapshots?: Store['getRemoteLayoutSnapshots']
+  readTerminalScrollbackSnapshot?: Store['readTerminalScrollbackSnapshot']
   runDurableMutation?: Store['runDurableMutation']
   flushOrThrow?: Store['flushOrThrow']
   flushPendingOrThrowAsync?: Store['flushPendingOrThrowAsync']
