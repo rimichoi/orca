@@ -8,13 +8,6 @@ import { selectWslMovedChatWorkspaces } from '@/store/repos/wsl-moved-projects'
 import { activateWslMovedWorkspace } from '@/lib/wsl-moved-chat-activation'
 import type { Tab } from '../../../../shared/tab-types'
 
-const NO_MOVED_CATALOG: Parameters<typeof selectWslMovedChatWorkspaces>[0] = {
-  wslMovedProjects: [],
-  worktreesByRepo: {},
-  folderWorkspaces: [],
-  unifiedTabsByWorktree: {}
-}
-
 function chatLabel(tab: Tab): string {
   return tab.customLabel?.trim() || tab.generatedLabel?.trim() || tab.label
 }
@@ -30,7 +23,7 @@ const WslMovedProjectsSection = React.memo(function WslMovedProjectsSection() {
     useShallow((state) =>
       // Why: with nothing moved, tab and catalog churn must not re-render this section.
       state.wslMovedProjects.length === 0
-        ? NO_MOVED_CATALOG
+        ? null
         : {
             wslMovedProjects: state.wslMovedProjects,
             worktreesByRepo: state.worktreesByRepo,
@@ -47,7 +40,10 @@ const WslMovedProjectsSection = React.memo(function WslMovedProjectsSection() {
       ? (state.groupsByWorktree[key]?.find((g) => g.id === groupId)?.activeTabId ?? null)
       : null
   })
-  const groups = React.useMemo(() => selectWslMovedChatWorkspaces(catalog), [catalog])
+  const groups = React.useMemo(
+    () => (catalog ? selectWslMovedChatWorkspaces(catalog) : []),
+    [catalog]
+  )
   if (groups.length === 0) {
     return null
   }

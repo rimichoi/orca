@@ -11,20 +11,28 @@ function isChatTab(tab: Pick<Tab, 'contentType'>): boolean {
   return tab.contentType === 'agent-session'
 }
 
-/** Writes `next`'s chat tabs for `workspaceId` into `merged`, which holds the frozen prior rows. */
-export function acceptHostOwnedChatTabs(
-  merged: WorkspaceSessionState,
+type HostOwnedChatTabRows = Pick<
+  WorkspaceSessionState,
+  'unifiedTabs' | 'tabGroups' | 'tabGroupLayouts'
+>
+
+/**
+ * `workspaceId`'s rows with `next`'s chat tabs in place of the frozen ones `frozen` holds, or null
+ * when neither side has a chat. Only the freeze splice merges them; this never writes a session.
+ */
+export function hostOwnedChatTabRows(
+  frozen: WorkspaceSessionState,
   next: WorkspaceSessionState,
   workspaceId: string
-): void {
-  const priorTabs = merged.unifiedTabs?.[workspaceId] ?? []
+): HostOwnedChatTabRows | null {
+  const priorTabs = frozen.unifiedTabs?.[workspaceId] ?? []
   const nextChats = (next.unifiedTabs?.[workspaceId] ?? []).filter(isChatTab)
   const priorChatIds = new Set(priorTabs.filter(isChatTab).map((tab) => tab.id))
   const nextChatIds = new Set(nextChats.map((tab) => tab.id))
   if (priorChatIds.size === 0 && nextChatIds.size === 0) {
-    return
+    return null
   }
-  const priorGroups = merged.tabGroups?.[workspaceId] ?? []
+  const priorGroups = frozen.tabGroups?.[workspaceId] ?? []
   // Why reuse prior groups: the frozen layout names them, so a new group would never render.
   const groups =
     priorGroups.length > 0
@@ -47,13 +55,11 @@ export function acceptHostOwnedChatTabs(
       return groupId === tab.groupId ? tab : { ...tab, groupId }
     })
   ]
-  merged.unifiedTabs = { ...merged.unifiedTabs, [workspaceId]: tabs }
-  merged.tabGroups = { ...merged.tabGroups, [workspaceId]: groups }
-  if (priorGroups.length === 0 && next.tabGroupLayouts?.[workspaceId]) {
-    merged.tabGroupLayouts = {
-      ...merged.tabGroupLayouts,
-      [workspaceId]: next.tabGroupLayouts[workspaceId]
-    }
+  const nextLayout = priorGroups.length === 0 ? next.tabGroupLayouts?.[workspaceId] : undefined
+  return {
+    unifiedTabs: { [workspaceId]: tabs },
+    tabGroups: { [workspaceId]: groups },
+    ...(nextLayout ? { tabGroupLayouts: { [workspaceId]: nextLayout } } : {})
   }
 }
 
