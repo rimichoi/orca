@@ -20,7 +20,9 @@ import {
   isWslMoveWorkspaceHostOwned,
   isWslMoveWorkspaceSessionFrozen
 } from './wsl-move-scope-guard'
-import { acceptHostOwnedChatTabs } from './wsl-move-host-owned-chat-tabs'
+import { hostOwnedChatTabRows } from './wsl-move-host-owned-chat-tabs'
+
+const CHAT_TAB_FIELDS = ['unifiedTabs', 'tabGroups', 'tabGroupLayouts'] as const
 
 export function keepWslMoveFrozenSessions(
   next: WorkspaceSessionState,
@@ -48,8 +50,13 @@ export function keepWslMoveFrozenSessions(
     keepPriorRows(merged, prior, frozen)
   }
   for (const workspaceId of frozen) {
-    if (acceptsChatTabs(workspaceId)) {
-      acceptHostOwnedChatTabs(merged, next, workspaceId)
+    const chatRows = acceptsChatTabs(workspaceId)
+      ? hostOwnedChatTabRows(merged, next, workspaceId)
+      : null
+    if (chatRows) {
+      for (const field of CHAT_TAB_FIELDS) {
+        mergeWorkspaceSessionRecordField(merged, field, chatRows)
+      }
     }
   }
   return merged
