@@ -243,3 +243,28 @@ export function removeUncommittedWslMoveCutover(userDataPath: string, migrationI
   }
   removeNewestInChain(userDataPath, record)
 }
+
+/**
+ * "Use this project on this computer again": drops a committed move so its retained source rows
+ * show again as they were before it. Only the newest move of its distro: a later move built on it.
+ */
+export function removeCommittedWslMoveCutover(userDataPath: string, migrationId: string): void {
+  const record = listWslMoveCutovers(userDataPath).find(
+    (entry) => entry.migrationId === migrationId
+  )
+  if (!record) {
+    return
+  }
+  if (
+    WSL_MOVE_CUTOVER_PHASES.indexOf(record.phase) <
+    WSL_MOVE_CUTOVER_PHASES.indexOf('destination-committed')
+  ) {
+    throw new Error('wsl_move_not_committed')
+  }
+  if (
+    listWslMoveCutoverChain(userDataPath, record.journalKey).at(-1)?.migrationId !== migrationId
+  ) {
+    throw new Error('wsl_move_superseded')
+  }
+  journals.remove(userDataPath, migrationId)
+}

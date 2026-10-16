@@ -7,6 +7,11 @@ import { wslMoveCutoverFixture as cutover } from '../persistence/__fixtures__/ws
 import { seedWslMoveCutover } from '../persistence/__fixtures__/wsl-mover/wsl-move-journal-seeding'
 import { listWslMoveCutovers } from '../persistence/moving-wsl-projects/wsl-move-cutover-journal'
 import {
+  hasWslMoveFrozenSessions,
+  loadWslMoveFence,
+  resetWslMoveFenceForTests
+} from '../persistence/moving-wsl-projects/wsl-move-scope-guard'
+import {
   registerWslMoveDesktopRewriteStore,
   resetWslMoveDesktopRewriteStoresForTests
 } from '../persistence/moving-wsl-projects/wsl-move-desktop-rewrite-stores'
@@ -30,10 +35,12 @@ beforeEach(() => {
   registerWslMoveDesktopRewriteStore({ id: 'renderer-a', side: 'renderer' })
   seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
   registerWslMoveHandlers(() => userDataPath)
+  loadWslMoveFence(userDataPath)
 })
 afterEach(() => {
   vi.unstubAllEnvs()
   resetWslMoveDesktopRewriteStoresForTests()
+  resetWslMoveFenceForTests()
   rmSync(userDataPath, { recursive: true, force: true })
 })
 
@@ -75,5 +82,34 @@ describe('WSL move IPC', () => {
       invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
     ).toEqual({ recorded: false, reason: 'gated-off' })
     expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual([])
+  })
+
+  it('brings a moved project back, validating the renderer input', async () => {
+    for (const bad of [undefined, null, { kind: 'repo' }, { kind: 'x', id: 'repo-1' }]) {
+      expect(invoke('wslMove:useProjectHereAgain', bad)).toEqual({
+        released: false,
+        reason: 'not-moved'
+      })
+    }
+    expect(listWslMoveCutovers(userDataPath)).toHaveLength(1)
+
+    const listeners = new Map<string, () => void>()
+    const sender = {
+      once: (name: string, listener: () => void) => listeners.set(name, listener),
+      isDestroyed: () => false,
+      reload: vi.fn()
+    }
+    const result = handlers.get('wslMove:useProjectHereAgain')?.(
+      { sender },
+      { kind: 'repo', id: 'repo-1' }
+    )
+    expect(result).toMatchObject({ released: true })
+    expect(listWslMoveCutovers(userDataPath)).toEqual([])
+    // The page held only chats: its session stays frozen until the reloaded page has loaded.
+    expect(hasWslMoveFrozenSessions()).toBe(true)
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(sender.reload).toHaveBeenCalledOnce()
+    listeners.get('did-finish-load')?.()
+    expect(hasWslMoveFrozenSessions()).toBe(false)
   })
 })

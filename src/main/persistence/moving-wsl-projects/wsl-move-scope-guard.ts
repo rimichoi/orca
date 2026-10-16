@@ -19,6 +19,10 @@ import {
   findProjectHostSetup,
   type ProjectHostSetupTarget
 } from '../../../shared/project-host-setup-target'
+import {
+  hasReleasedWslMoveSessionHolds,
+  isReleasedWslMoveSessionHeld
+} from './wsl-move-release-session-hold'
 
 export type WslMoveProjectRef = { repoId: string } | { folderWorkspaceId: string }
 
@@ -260,6 +264,9 @@ export function isWslMoveWorkspaceBlocked(
 
 /** True once a move has paused the project: its session must stay as the quiesce left it. */
 export function isWslMoveProjectSessionFrozen(ref: WslMoveProjectRef | null): boolean {
+  if (ref && isReleasedWslMoveSessionHeld(ref)) {
+    return true
+  }
   const fence = loaded?.view
   return !!ref && !!fence?.readable && inScope(fence.state.sessionFrozen, ref)
 }
@@ -274,6 +281,9 @@ export function isWslMoveWorkspaceSessionFrozen(workspaceId: string): boolean {
  * proceed without a readable journal, so freezing would only discard sessions silently.
  */
 export function hasWslMoveFrozenSessions(): boolean {
+  if (hasReleasedWslMoveSessionHolds()) {
+    return true
+  }
   const fence = loaded?.view
   if (!fence?.readable) {
     return false
