@@ -2,6 +2,7 @@
  * Once a move has paused a project, its workspaces' session stays exactly as the quiesce left it:
  * that slept state is what the move carries to the host, so a later renderer write must neither
  * change nor drop it. Every other workspace's rows, and the global fields, are taken as written.
+ * Once the host owns the project, its native chat tabs are taken as written too.
  */
 import { WORKSPACE_SESSION_FIELD_OWNERSHIP } from '../../../shared/workspace-session-host-field-ownership'
 import {
@@ -14,12 +15,19 @@ import {
   workspaceIdsNamedByPartition
 } from '../../../shared/workspace-session-stranded-partition-adoption'
 import type { WorkspaceSessionState } from '../../../shared/workspace-session-state-types'
-import { hasWslMoveFrozenSessions, isWslMoveWorkspaceSessionFrozen } from './wsl-move-scope-guard'
+import {
+  hasWslMoveFrozenSessions,
+  isWslMoveWorkspaceHostOwned,
+  isWslMoveWorkspaceSessionFrozen
+} from './wsl-move-scope-guard'
+import { acceptHostOwnedChatTabs } from './wsl-move-host-owned-chat-tabs'
 
 export function keepWslMoveFrozenSessions(
   next: WorkspaceSessionState,
   prior: WorkspaceSessionState | undefined,
-  isFrozen: (workspaceId: string) => boolean
+  isFrozen: (workspaceId: string) => boolean,
+  // Committed moves only: the project's existing chats stay on this computer and keep working.
+  acceptsChatTabs: (workspaceId: string) => boolean = () => false
 ): WorkspaceSessionState {
   const frozen = new Set<string>()
   for (const workspaceId of workspaceIdsNamedByPartition(next)) {
@@ -36,9 +44,22 @@ export function keepWslMoveFrozenSessions(
     return next
   }
   const merged = withoutWorkspaces(next, frozen)
-  if (!prior) {
-    return merged
+  if (prior) {
+    keepPriorRows(merged, prior, frozen)
   }
+  for (const workspaceId of frozen) {
+    if (acceptsChatTabs(workspaceId)) {
+      acceptHostOwnedChatTabs(merged, next, workspaceId)
+    }
+  }
+  return merged
+}
+
+function keepPriorRows(
+  merged: WorkspaceSessionState,
+  prior: WorkspaceSessionState,
+  frozen: ReadonlySet<string>
+): void {
   const kept = filterWorkspaceRows(prior, (workspaceId) => frozen.has(workspaceId))
   for (const [field, ownership] of Object.entries(WORKSPACE_SESSION_FIELD_OWNERSHIP)) {
     if (!isSessionField(field) || ownership === 'global' || ownership === 'hostPrivate') {
@@ -50,7 +71,6 @@ export function keepWslMoveFrozenSessions(
       mergeWorkspaceSessionRecordField(merged, field, kept)
     }
   }
-  return merged
 }
 
 function isSessionField(field: string): field is keyof WorkspaceSessionState {
@@ -65,5 +85,10 @@ export function keepWslMoveFrozenSessionsForStore(
   if (!hasWslMoveFrozenSessions()) {
     return next
   }
-  return keepWslMoveFrozenSessions(next, prior, isWslMoveWorkspaceSessionFrozen)
+  return keepWslMoveFrozenSessions(
+    next,
+    prior,
+    isWslMoveWorkspaceSessionFrozen,
+    isWslMoveWorkspaceHostOwned
+  )
 }
