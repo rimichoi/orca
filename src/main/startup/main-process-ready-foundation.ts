@@ -15,6 +15,7 @@ import { getAppEnvironment } from '../../shared/app-environment'
 import { loadWslMoveFence } from '../persistence/moving-wsl-projects/wsl-move-scope-guard'
 import { runGatedWslMoveDesktopRewritePass } from '../persistence/moving-wsl-projects/wsl-move-desktop-rewrite'
 import { recoverInterruptedWslMoves } from '../persistence/moving-wsl-projects/wsl-move-reset'
+import { registerWslMoveMainRewriteStores } from '../persistence/moving-wsl-projects/wsl-move-main-rewrite-stores'
 import { createProfileStateStoreForStartup } from '../persistence/profile-state/profile-state-startup-authority'
 import { initializeBrowserClientHostId } from '../browser/browser-client-host-id'
 import { scheduleSecretProtectionGapReport } from '../host/deferred-secret-protection-report'
@@ -155,6 +156,7 @@ export async function initializeReadyFoundation(): Promise<void> {
   const userDataPath = getAppEnvironment().getPath('userData')
   // Why before any handler or runtime: a project a WSL move is taking must never get a new terminal.
   loadWslMoveFence(userDataPath)
+  registerWslMoveMainRewriteStores(store)
   // Resets a move interrupted before commit, then finishes one that committed; gated off, no-ops.
   void recoverInterruptedWslMoves(userDataPath).then(() =>
     runGatedWslMoveDesktopRewritePass({ userDataPath })
