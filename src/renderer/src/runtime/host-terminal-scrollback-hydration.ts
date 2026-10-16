@@ -2,7 +2,7 @@ import type { TerminalLayoutSnapshot } from '../../../shared/terminal-tab-types'
 import type { SessionReadTerminalScrollbackResult } from '../../../shared/rpc-contract/session-terminal-scrollback-params'
 import { SESSION_TERMINAL_SCROLLBACK_READ_RUNTIME_CAPABILITY } from '../../../shared/session-tabs-runtime-capabilities'
 import { useAppStore } from '@/store'
-import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { getExplicitRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import {
   callRuntimeRpc,
   peekRuntimeEnvironmentCapability,
@@ -62,7 +62,7 @@ const defaultDeps: HostTerminalScrollbackHydrationDeps = {
     }
   },
   resolveEnvironmentId: (worktreeId) =>
-    getRuntimeEnvironmentIdForWorktree(useAppStore.getState(), worktreeId),
+    getExplicitRuntimeEnvironmentIdForWorktree(useAppStore.getState(), worktreeId),
   hasLocalSnapshot: (ref) => {
     try {
       return window.api.session.hasTerminalScrollback({ ref })
