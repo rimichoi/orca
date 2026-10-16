@@ -11,7 +11,8 @@ const HOST = toRuntimeExecutionHostId('wsl:Ubuntu')
 const scope = wslMoveRewriteScope({
   cutover: wslMoveCutoverFixture('move-1', 'destination-committed', {}, { repoIds: ['repo-a'] }),
   rewritePath: createUncToLinuxPathRewriter('Ubuntu'),
-  destinationHostId: HOST
+  destinationHostId: HOST,
+  recordSeededHostWorkspaceIds: () => {}
 })
 
 // The mixed profile: repo-a moves; repo-b (same distro), repo-win and repo-deb stay.
@@ -26,6 +27,7 @@ const WINDOWS = `repo-win::${sourceRepo('repo-win')}`
 const SSH = 'ssh:box' as const
 const sourceUi = source.ui ?? {}
 const destinationUi = destination.ui ?? {}
+const EMPTY_UI: WslMoveUiRoutingState = { lastActiveWorktreeId: null, collapsedGroups: [] }
 
 function profileUi(): WslMoveUiRoutingState {
   const ui = sourceUi
@@ -84,32 +86,100 @@ function dismissal(
 }
 
 describe('WSL move UI routing rewrite', () => {
-  it("routes only the moved project's rows to the host, as the host holds them", () => {
-    const updates = rewriteWslMoveUiRouting(profileUi(), scope)
+  it("copies only the moved project's rows to the host's form, keeping the local ones", () => {
+    const ui = profileUi()
+    const updates = rewriteWslMoveUiRouting(ui, scope)
 
     expect(updates.lastActiveWorktreeId).toBe(destinationUi.lastActiveWorktreeId)
     expect(updates.showDotfilesByWorktree).toEqual({
-      ...destinationUi.showDotfilesByWorktree,
-      [SAME_DISTRO]: false
+      ...ui.showDotfilesByWorktree,
+      ...destinationUi.showDotfilesByWorktree
     })
     expect(updates.explorerDisplayRootByWorktree).toEqual({
-      ...destinationUi.explorerDisplayRootByWorktree,
-      [WINDOWS]: 'C:\\src\\win\\lib'
+      ...ui.explorerDisplayRootByWorktree,
+      ...destinationUi.explorerDisplayRootByWorktree
     })
     expect(updates.workspaceCleanup?.dismissals).toEqual({
-      [`${HOST}\0${MOVED_ON_HOST}`]: {
-        ...dismissal(MOVED_ON_HOST),
-        executionHostId: HOST
-      },
-      [`${SSH}\0${MOVED}`]: dismissal(MOVED, SSH),
-      [SAME_DISTRO]: dismissal(SAME_DISTRO)
+      ...ui.workspaceCleanup?.dismissals,
+      [`${HOST}\0${MOVED_ON_HOST}`]: dismissal(MOVED_ON_HOST, HOST)
     })
     expect(updates.manualRepoOrder).toEqual([
       { hostId: 'local', repoId: 'repo-win' },
+      { hostId: 'local', repoId: 'repo-a' },
       { hostId: HOST, repoId: 'repo-a' },
       { hostId: 'local', repoId: 'repo-b' },
       { hostId: SSH, repoId: 'repo-a' }
     ])
+  })
+
+  it('copies a legacy bare dismissal key, and one with no host, in their own form', () => {
+    const updates = rewriteWslMoveUiRouting(
+      { ...EMPTY_UI, workspaceCleanup: { dismissals: { [MOVED]: dismissal(MOVED) } } },
+      scope
+    )
+
+    expect(updates.workspaceCleanup?.dismissals).toEqual({
+      [MOVED]: dismissal(MOVED),
+      [MOVED_ON_HOST]: dismissal(MOVED_ON_HOST)
+    })
+  })
+
+  it("maps an in-scope folder workspace's explorer root in place, its key unchanged", () => {
+    const folderScope = wslMoveRewriteScope({
+      cutover: wslMoveCutoverFixture(
+        'move-1',
+        'destination-committed',
+        {},
+        { repoIds: [], folderWorkspaceIds: ['folder-1'] }
+      ),
+      rewritePath: createUncToLinuxPathRewriter('Ubuntu'),
+      destinationHostId: HOST,
+      recordSeededHostWorkspaceIds: () => {}
+    })
+    const other = '\\\\wsl.localhost\\Ubuntu\\srv\\other'
+    const updates = rewriteWslMoveUiRouting(
+      {
+        ...EMPTY_UI,
+        explorerDisplayRootByWorktree: {
+          'folder:folder-1': '\\\\wsl.localhost\\Ubuntu\\srv\\notes\\src',
+          'folder:folder-2': other
+        }
+      },
+      folderScope
+    )
+
+    expect(updates.explorerDisplayRootByWorktree).toEqual({
+      'folder:folder-1': '/srv/notes/src',
+      'folder:folder-2': other
+    })
+  })
+
+  it('reads the older wsl$ spelling and a lowercase distro as the moved distro', () => {
+    const bothScope = wslMoveRewriteScope({
+      cutover: wslMoveCutoverFixture(
+        'move-1',
+        'destination-committed',
+        {},
+        { repoIds: ['repo-a', 'repo-b'] }
+      ),
+      rewritePath: createUncToLinuxPathRewriter('Ubuntu'),
+      destinationHostId: HOST,
+      recordSeededHostWorkspaceIds: () => {}
+    })
+    const lowercase = 'repo-a::\\\\wsl.localhost\\ubuntu\\home\\dev\\app'
+    const updates = rewriteWslMoveUiRouting(
+      // SAME_DISTRO is spelled `\\wsl$\Ubuntu\...` by the fixture.
+      { ...EMPTY_UI, showDotfilesByWorktree: { [SAME_DISTRO]: true, [lowercase]: false } },
+      bothScope
+    )
+
+    expect(SAME_DISTRO).toContain('wsl$')
+    expect(updates.showDotfilesByWorktree).toEqual({
+      [SAME_DISTRO]: true,
+      [lowercase]: false,
+      'repo-b::/home/dev/lib': true,
+      [MOVED_ON_HOST]: false
+    })
   })
 
   it('adds the host wherever local is shown, and never removes local', () => {

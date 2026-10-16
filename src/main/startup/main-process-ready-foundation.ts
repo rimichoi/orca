@@ -13,7 +13,7 @@ import { ensureActiveOrcaProfile } from '../orca-profiles/profile-index-store'
 import { getCanonicalUserDataPath } from '../persistence'
 import { getAppEnvironment } from '../../shared/app-environment'
 import { loadWslMoveFence } from '../persistence/moving-wsl-projects/wsl-move-scope-guard'
-import { runGatedWslMoveDesktopRewritePass } from '../persistence/moving-wsl-projects/wsl-move-desktop-rewrite'
+import { runWslMoveStartupRewrite } from '../persistence/moving-wsl-projects/wsl-move-startup-rewrite'
 import { registerWslMoveMainRewriteStores } from '../persistence/moving-wsl-projects/wsl-move-main-rewrite-stores'
 import { createProfileStateStoreForStartup } from '../persistence/profile-state/profile-state-startup-authority'
 import { initializeBrowserClientHostId } from '../browser/browser-client-host-id'
@@ -134,6 +134,9 @@ export async function initializeReadyFoundation(): Promise<void> {
   // Why this early: the first window stamps the hosting id into its renderer's argv, so the durable
   // read has to have happened by then or the renderer and the browser-host lease disagree.
   initializeBrowserClientHostId(profile.profileDirectory)
+  // Why before the store loads: its pane normalization tells a moved project's retained rows from
+  // a rival host's, and no handler or runtime may give a moving project a new terminal.
+  loadWslMoveFence(getAppEnvironment().getPath('userData'))
   const profileState = await createProfileStateStoreForStartup({
     dataFile: profile.dataFile,
     databaseFile: profile.stateDatabaseFile,
@@ -152,11 +155,9 @@ export async function initializeReadyFoundation(): Promise<void> {
   const store = profileState.store
   state.store = store
   setNodeDistMirrorSettingReader(() => store.getSettings().nodeDistMirrorUrl)
-  // Why before any handler or runtime: a project a WSL move is taking must never get a new terminal.
-  loadWslMoveFence(getAppEnvironment().getPath('userData'))
   registerWslMoveMainRewriteStores(store)
-  // Finishes a move that committed before a crash; gated off it does nothing, and it never throws.
-  void runGatedWslMoveDesktopRewritePass({
+  // Finishes a move that committed before a crash; main-process-ready waits on it, bounded.
+  state.wslMoveStartupRewriteReady = runWslMoveStartupRewrite({
     userDataPath: getAppEnvironment().getPath('userData')
   })
   // Why: create pending readiness before the guard can observe the default session.
