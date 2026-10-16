@@ -5,7 +5,8 @@
  * decision, option C), and terminals restart on the host, so neither is seeded.
  */
 import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
-import type { Tab, TabGroup } from '../../../shared/tab-types'
+import type { Tab } from '../../../shared/tab-types'
+import { filterWorkspaceSessionTabs } from '../../../shared/workspace-session-tab-filter'
 import { WORKSPACE_SESSION_FIELD_OWNERSHIP } from '../../../shared/workspace-session-host-field-ownership'
 import {
   mergeWorkspaceSessionArrayField,
@@ -59,20 +60,28 @@ export function wslMoveSessionGlobalsPatch(
 // Restart hints for local PTYs; the host decides what to start for its own terminals.
 const UNSEEDED_FIELDS: ReadonlySet<string> = new Set(['activeWorktreeIdsOnShutdown'])
 
+export type WslMoveHostSessionSeed = {
+  session: WorkspaceSessionState
+  workspaceIds: string[]
+}
+
 /**
- * `existing` plus the carried rows of every moved workspace it names nothing for, or null when
- * there is none: what the host already published is never replaced.
+ * `existing` plus the carried rows of every moved workspace it names nothing for and no earlier
+ * run seeded, or null when there is none: what the host published, and a seeded tab the user
+ * has since closed, are never replaced.
  */
 export function wslMoveHostSessionSeed(
   carried: WorkspaceSessionState,
   existing: WorkspaceSessionState,
-  scope: WslMoveRewriteScope
-): WorkspaceSessionState | null {
+  scope: WslMoveRewriteScope,
+  alreadySeeded: ReadonlySet<string> = new Set()
+): WslMoveHostSessionSeed | null {
   const published = workspaceIdsNamedByPartition(existing)
   const stripped = withoutChatTabs(withoutPtyBindings(carried))
   const seeded = new Set(
     [...workspaceIdsNamedByPartition(stripped)].filter(
-      (workspaceId) => scope.inScope(workspaceId) && !published.has(workspaceId)
+      (workspaceId) =>
+        scope.inScope(workspaceId) && !published.has(workspaceId) && !alreadySeeded.has(workspaceId)
     )
   )
   if (seeded.size === 0) {
@@ -95,7 +104,7 @@ export function wslMoveHostSessionSeed(
       mergeWorkspaceSessionRecordField(next, field, rows)
     }
   }
-  return next
+  return { session: next, workspaceIds: [...seeded] }
 }
 
 function isSessionField(field: string): field is keyof WorkspaceSessionState {
@@ -130,7 +139,7 @@ function isChatTab(tab: Pick<Tab, 'contentType'>): boolean {
   return tab.contentType === 'agent-session'
 }
 
-/** Chat tabs, and the focus and groups that name them; they stay listed on the local entry. */
+/** Chat tabs, and the groups, focus and sleeping records that name them; they stay local. */
 function withoutChatTabs(session: WorkspaceSessionState): WorkspaceSessionState {
   const chatIds = new Set(
     Object.values(session.unifiedTabs ?? {}).flatMap((tabs) =>
@@ -140,52 +149,17 @@ function withoutChatTabs(session: WorkspaceSessionState): WorkspaceSessionState 
   if (chatIds.size === 0) {
     return session
   }
-  const unifiedTabs = Object.fromEntries(
-    Object.entries(session.unifiedTabs ?? {}).map(([owner, tabs]) => [
-      owner,
-      tabs.filter((tab) => !isChatTab(tab))
-    ])
-  )
-  const tabGroups = Object.fromEntries(
-    Object.entries(session.tabGroups ?? {}).map(([owner, groups]) => [
-      owner,
-      groups.map((group) => withoutTabs(group, chatIds))
-    ])
-  )
-  const notChat = (value: string | null | undefined): boolean => !value || !chatIds.has(value)
+  const filtered = filterWorkspaceSessionTabs(session, (_owner, tab) => !isChatTab(tab))
   return {
-    ...session,
-    unifiedTabs,
-    tabGroups,
-    activeTabIdByWorktree: pickValues(session.activeTabIdByWorktree, notChat),
-    activeTabTypeByWorktree: pickValues(
-      session.activeTabTypeByWorktree,
-      (type) => type !== 'agent-session'
-    ),
-    sleepingAgentSessionsByPaneKey: pickValues(session.sleepingAgentSessionsByPaneKey, (record) =>
-      notChat(record.tabId)
-    )
+    ...filtered,
+    ...(session.sleepingAgentSessionsByPaneKey
+      ? {
+          sleepingAgentSessionsByPaneKey: Object.fromEntries(
+            Object.entries(session.sleepingAgentSessionsByPaneKey).filter(
+              ([, record]) => !record.tabId || !chatIds.has(record.tabId)
+            )
+          )
+        }
+      : {})
   }
-}
-
-function withoutTabs(group: TabGroup, tabIds: ReadonlySet<string>): TabGroup {
-  const tabOrder = group.tabOrder.filter((id) => !tabIds.has(id))
-  const recentTabIds = group.recentTabIds?.filter((id) => !tabIds.has(id))
-  const activeTabId =
-    group.activeTabId && !tabIds.has(group.activeTabId)
-      ? group.activeTabId
-      : (recentTabIds?.at(-1) ?? tabOrder.at(-1) ?? null)
-  return {
-    ...group,
-    tabOrder,
-    activeTabId,
-    ...(recentTabIds ? { recentTabIds } : {})
-  }
-}
-
-function pickValues<T>(
-  record: Record<string, T> | undefined,
-  keep: (value: T) => boolean
-): Record<string, T> | undefined {
-  return record && Object.fromEntries(Object.entries(record).filter(([, value]) => keep(value)))
 }

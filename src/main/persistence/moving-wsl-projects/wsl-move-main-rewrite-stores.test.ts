@@ -27,6 +27,7 @@ import {
   resetWslMoveDesktopRewriteStoresForTests
 } from './wsl-move-desktop-rewrite-stores'
 import { registerWslMoveMainRewriteStores } from './wsl-move-main-rewrite-stores'
+import { findCrossHostPaneTabIds } from '../restoring-sessions/cross-host-pane-tab-ids'
 import { loadWslMoveFence, resetWslMoveFenceForTests } from './wsl-move-scope-guard'
 
 vi.mock('electron', () => ({
@@ -137,13 +138,19 @@ describe('WSL move main rewrite stores', () => {
     const [record] = listWslMoveCutovers(testState.dir)
     expect(record?.rewrittenStores).toEqual(STORE_IDS)
     expect(record?.phase).toBe('destination-committed')
+    expect(record?.seededHostWorkspaceIds).toEqual([MOVED_ON_HOST])
     // Read back from the profile database: each store's flush made its write durable.
     const saved = persisted()
     expect(saved.ui.lastActiveWorktreeId).toBe(MOVED_ON_HOST)
-    expect(saved.ui.explorerDisplayRootByWorktree).toEqual(
-      destination.ui?.explorerDisplayRootByWorktree
-    )
-    expect(saved.ui.manualRepoOrder).toEqual([{ hostId: HOST, repoId: 'repo-a' }])
+    // The local forms stay beside the host's, for a downgrade.
+    expect(saved.ui.explorerDisplayRootByWorktree).toEqual({
+      ...source.ui?.explorerDisplayRootByWorktree,
+      ...destination.ui?.explorerDisplayRootByWorktree
+    })
+    expect(saved.ui.manualRepoOrder).toEqual([
+      { hostId: 'local', repoId: 'repo-a' },
+      { hostId: HOST, repoId: 'repo-a' }
+    ])
     expect(saved.ui.visibleWorkspaceHostIds).toEqual(['local', HOST])
     expect(saved.workspaceSession.activeWorktreeId).toBe(MOVED_ON_HOST)
     expect(saved.workspaceSession.activeWorkspaceExecutionHostId).toBe(HOST)
@@ -157,6 +164,10 @@ describe('WSL move main rewrite stores', () => {
     // The repo that stays on this computer keeps its local rows and gets no host rows.
     expect(hostSession?.tabsByWorktree['repo-b::/home/dev/lib']).toBeUndefined()
     expect(saved.workspaceSession.tabsByWorktree[MOVED]?.map((tab) => tab.id)).toEqual(['tab-1'])
+    // Both partitions hold tab-1, but the local one is the moved project's dormant copy.
+    expect(saved.workspaceSession.terminalLayoutsByTabId['tab-1']).toBeDefined()
+    expect(hostSession?.terminalLayoutsByTabId['tab-1']).toBeDefined()
+    expect(findCrossHostPaneTabIds(saved)).toEqual(new Set())
   })
 
   it('re-runs a store whose ledger entry a crash lost, changing nothing', async () => {
@@ -182,6 +193,33 @@ describe('WSL move main rewrite stores', () => {
     expect(after.ui).toEqual(before.ui)
     expect(after.workspaceSession).toEqual(before.workspaceSession)
     expect(after.workspaceSessionsByHostId).toEqual(before.workspaceSessionsByHostId)
+  })
+
+  it('never re-seeds a tab the user closed after a seed whose flush timed out', async () => {
+    seedWslMoveCutover(testState.dir, committedMove())
+    loadWslMoveFence(testState.dir)
+    const flush = store.flushPendingOrThrowAsync.bind(store)
+    const hangThirdFlush = vi
+      .spyOn(store, 'flushPendingOrThrowAsync')
+      .mockImplementationOnce(flush)
+      .mockImplementationOnce(flush)
+      .mockImplementationOnce(() => new Promise<void>(() => {}))
+    // Long enough that only the hung flush runs out, even on a loaded machine.
+    await runWslMoveDesktopRewritePass({ userDataPath: testState.dir, storeTimeoutMs: 2_000 })
+
+    const afterTimeout = listWslMoveCutovers(testState.dir)[0]
+    expect(afterTimeout?.rewrittenStores).toEqual(['ui-routing', 'session-globals'])
+    expect(afterTimeout?.seededHostWorkspaceIds).toEqual([MOVED_ON_HOST])
+    // The user closes the seeded tabs before the next pass.
+    store.setWorkspaceSession(getDefaultWorkspaceSession(), HOST)
+    hangThirdFlush.mockRestore()
+    const seed = vi.spyOn(store, 'setWorkspaceSession')
+
+    await runWslMoveDesktopRewritePass({ userDataPath: testState.dir })
+
+    expect(seed).not.toHaveBeenCalled()
+    expect(listWslMoveCutovers(testState.dir)[0]?.rewrittenStores).toEqual(STORE_IDS)
+    expect(store.getWorkspaceSession(HOST).tabsByWorktree[MOVED_ON_HOST]).toBeUndefined()
   })
 
   it('does nothing for a move that has not committed', async () => {

@@ -61,11 +61,14 @@ export function registerWslMoveMainRewriteStores(profile: WslMoveMainRewriteProf
       const seed = wslMoveHostSessionSeed(
         carried,
         profile.getWorkspaceSession(hostId),
-        wslMoveRewriteScope(context)
+        wslMoveRewriteScope(context),
+        new Set(context.cutover.seededHostWorkspaceIds)
       )
       if (seed) {
         // One-shot, ledgered move rewrite; layout commands refuse runtime hosts' partitions.
-        profile.setWorkspaceSession(seed, hostId)
+        profile.setWorkspaceSession(seed.session, hostId)
+        // Recorded before the flush: a crash may then lose the seed, but never revives a closed tab.
+        context.recordSeededHostWorkspaceIds(seed.workspaceIds)
       }
     },
     flush

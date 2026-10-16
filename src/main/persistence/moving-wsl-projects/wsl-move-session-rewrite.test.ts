@@ -12,9 +12,15 @@ import { wslMoveHostSessionSeed, wslMoveSessionGlobalsPatch } from './wsl-move-s
 
 const HOST = toRuntimeExecutionHostId('wsl:Ubuntu')
 const scope = wslMoveRewriteScope({
-  cutover: wslMoveCutoverFixture('move-1', 'destination-committed', {}, { repoIds: ['repo-a'] }),
+  cutover: wslMoveCutoverFixture(
+    'move-1',
+    'destination-committed',
+    {},
+    { repoIds: ['repo-a'], folderWorkspaceIds: ['folder-1'] }
+  ),
   rewritePath: createUncToLinuxPathRewriter('Ubuntu'),
-  destinationHostId: HOST
+  destinationHostId: HOST,
+  recordSeededHostWorkspaceIds: () => {}
 })
 
 const source = wslMoverProfile('mixed-windows-wsl', 'source')
@@ -84,6 +90,25 @@ describe('WSL move session globals', () => {
     })
   })
 
+  it("moves focus on a moved folder workspace to the host, keeping the folder's key", () => {
+    expect(
+      wslMoveSessionGlobalsPatch(
+        {
+          activeWorktreeId: null,
+          activeWorkspaceKey: 'folder:folder-1',
+          activeWorkspaceExecutionHostId: 'local'
+        },
+        scope
+      )
+    ).toEqual({ activeWorkspaceExecutionHostId: HOST })
+    expect(
+      wslMoveSessionGlobalsPatch(
+        { activeWorktreeId: null, activeWorkspaceKey: 'folder:folder-2' },
+        scope
+      )
+    ).toBeNull()
+  })
+
   it('leaves focus on another project, or already on a host, alone', () => {
     const windows = 'repo-win::C:\\src\\win'
     expect(
@@ -109,9 +134,18 @@ describe('WSL move session globals', () => {
   })
 })
 
+/** The seeded partition alone. */
+function seedSession(
+  carried: WorkspaceSessionState,
+  existing: WorkspaceSessionState,
+  seedScope: typeof scope
+): WorkspaceSessionState | null {
+  return wslMoveHostSessionSeed(carried, existing, seedScope)?.session ?? null
+}
+
 describe('WSL move host session seed', () => {
   it("seeds only the moved project's rows, without chats or PTY bindings", () => {
-    const seed = wslMoveHostSessionSeed(carriedSession(), getDefaultWorkspaceSession(), scope)
+    const seed = seedSession(carriedSession(), getDefaultWorkspaceSession(), scope)
 
     expect(Object.keys(seed?.tabsByWorktree ?? {}).sort()).toEqual([MOVED_ON_HOST, FEATURE_ON_HOST])
     expect(seed?.tabsByWorktree[MOVED_ON_HOST]?.map((tab) => tab.ptyId)).toEqual([null])
@@ -152,7 +186,7 @@ describe('WSL move host session seed', () => {
       },
       tabGroups: { [MOVED_ON_HOST]: [tabGroup('host-group', MOVED_ON_HOST, ['host-tab'])] }
     }
-    const seed = wslMoveHostSessionSeed(carriedSession(), published, scope)
+    const seed = seedSession(carriedSession(), published, scope)
 
     expect(seed?.tabsByWorktree[MOVED_ON_HOST]).toEqual(published.tabsByWorktree[MOVED_ON_HOST])
     expect(seed?.tabGroups).toEqual(published.tabGroups)
@@ -162,11 +196,66 @@ describe('WSL move host session seed', () => {
   })
 
   it('changes nothing on a second run', () => {
-    const seed = wslMoveHostSessionSeed(carriedSession(), getDefaultWorkspaceSession(), scope)
+    const seed = seedSession(carriedSession(), getDefaultWorkspaceSession(), scope)
 
     if (!seed) {
       throw new Error('expected a seed')
     }
     expect(wslMoveHostSessionSeed(carriedSession(), seed, scope)).toBeNull()
+  })
+
+  it('never seeds a workspace an earlier run recorded, even once its tabs are closed', () => {
+    const first = wslMoveHostSessionSeed(carriedSession(), getDefaultWorkspaceSession(), scope)
+
+    expect(first?.workspaceIds.sort()).toEqual([MOVED_ON_HOST, FEATURE_ON_HOST])
+    expect(
+      wslMoveHostSessionSeed(
+        carriedSession(),
+        getDefaultWorkspaceSession(),
+        scope,
+        new Set(first?.workspaceIds)
+      )
+    ).toBeNull()
+  })
+
+  it('drops a group that held only chats, with the layout and focus that named it', () => {
+    const carried = carriedSession()
+    const workGroup = carried.tabGroups?.[MOVED_ON_HOST]?.[0]
+    const chatGroup = tabGroup('chat-group', MOVED_ON_HOST, [chatTab.id])
+    const seed = seedSession(
+      {
+        ...carried,
+        unifiedTabs: {
+          ...carried.unifiedTabs,
+          [MOVED_ON_HOST]: [
+            ...(carried.unifiedTabs?.[MOVED_ON_HOST] ?? []).filter((tab) => tab.id !== chatTab.id),
+            { ...chatTab, groupId: chatGroup.id }
+          ]
+        },
+        tabGroups: {
+          [MOVED_ON_HOST]: [
+            ...(workGroup
+              ? [{ ...workGroup, tabOrder: workGroup.tabOrder.filter((id) => id !== chatTab.id) }]
+              : []),
+            chatGroup
+          ]
+        },
+        tabGroupLayouts: {
+          [MOVED_ON_HOST]: {
+            type: 'split',
+            direction: 'horizontal',
+            first: { type: 'leaf', groupId: 'group-1' },
+            second: { type: 'leaf', groupId: chatGroup.id }
+          }
+        },
+        activeGroupIdByWorktree: { [MOVED_ON_HOST]: chatGroup.id }
+      },
+      getDefaultWorkspaceSession(),
+      scope
+    )
+
+    expect(seed?.tabGroups?.[MOVED_ON_HOST]?.map((group) => group.id)).toEqual(['group-1'])
+    expect(seed?.tabGroupLayouts?.[MOVED_ON_HOST]).toEqual({ type: 'leaf', groupId: 'group-1' })
+    expect(seed?.activeGroupIdByWorktree?.[MOVED_ON_HOST]).toBe('group-1')
   })
 })

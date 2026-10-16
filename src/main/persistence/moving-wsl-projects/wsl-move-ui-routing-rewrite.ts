@@ -1,8 +1,9 @@
 /**
- * The persisted UI's routing to a moved project, rewritten to the WSL host after a move commits:
- * worktree-keyed preferences take the host's ids, and every host filter that shows `local` also
- * shows the host. Nothing is removed, so the retained local entry keeps its own preferences, and a
- * second run finds nothing left to change.
+ * The persisted UI's routing to a moved project, extended to the WSL host after a move commits:
+ * each worktree-keyed preference, cleanup dismissal and manual-order row gains a host copy beside
+ * the local one, and every host filter that shows `local` also shows the host. The local forms
+ * stay for a lossless downgrade; only the last-active worktree, a single value, moves. A second
+ * run finds every copy present and changes nothing.
  */
 import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
 import type { PersistedUIState } from '../../../shared/persisted-ui-state-types'
@@ -55,18 +56,29 @@ export function rewriteWslMoveUiRouting(
   }
   const hostWorktreeKey = (key: string): string =>
     scope.inScope(key) ? scope.worktreeId(key) : key
-  const dotfiles = rekey(ui.showDotfilesByWorktree, hostWorktreeKey, (value) => value)
+  const dotfiles = withHostKeys(
+    ui.showDotfilesByWorktree,
+    hostWorktreeKey,
+    (value) => value,
+    scope.inScope
+  )
   if (dotfiles) {
     updates.showDotfilesByWorktree = dotfiles
   }
-  const roots = rekey(ui.explorerDisplayRootByWorktree, hostWorktreeKey, scope.path)
+  const roots = withHostKeys(
+    ui.explorerDisplayRootByWorktree,
+    hostWorktreeKey,
+    scope.path,
+    scope.inScope
+  )
   if (roots) {
     updates.explorerDisplayRootByWorktree = roots
   }
-  const dismissals = rekey(
+  const dismissals = withHostKeys(
     ui.workspaceCleanup?.dismissals,
     (key) => hostDismissalKey(key, scope),
-    (dismissal) => rewriteDismissal(dismissal, scope)
+    (dismissal) => rewriteDismissal(dismissal, scope),
+    () => false
   )
   if (ui.workspaceCleanup && dismissals) {
     updates.workspaceCleanup = { ...ui.workspaceCleanup, dismissals }
@@ -102,28 +114,34 @@ export function rewriteWslMoveUiRouting(
   return updates
 }
 
-/** Moved keys take the host's form; a key the host form already holds keeps that row. */
-function rekey<T>(
+/**
+ * The host form of each moved key beside the local one, which a downgrade still reads. A moved
+ * key that keeps its form (a folder workspace's) has only its value mapped.
+ */
+function withHostKeys<T>(
   record: Record<string, T> | undefined,
   hostKeyOf: (key: string) => string,
-  mapValue: (value: T) => T
+  mapValue: (value: T) => T,
+  inScope: (key: string) => boolean
 ): Record<string, T> | null {
   if (!record) {
     return null
   }
   let changed = false
-  const next: Record<string, T> = {}
+  const next: Record<string, T> = { ...record }
   for (const [key, value] of Object.entries(record)) {
     const hostKey = hostKeyOf(key)
-    if (hostKey === key) {
-      if (!Object.hasOwn(next, key)) {
-        next[key] = value
+    if (hostKey !== key) {
+      if (!Object.hasOwn(next, hostKey)) {
+        next[hostKey] = mapValue(value)
+        changed = true
       }
       continue
     }
-    changed = true
-    if (!Object.hasOwn(record, hostKey)) {
-      next[hostKey] = mapValue(value)
+    const mapped = inScope(key) ? mapValue(value) : value
+    if (mapped !== value) {
+      next[key] = mapped
+      changed = true
     }
   }
   return changed ? next : null
@@ -168,17 +186,17 @@ function rewriteManualRepoOrder(
   const onHost = new Set(
     order.filter((entry) => entry.hostId === scope.destinationHostId).map((entry) => entry.repoId)
   )
-  return order.flatMap((entry) => {
-    if (!isMovedLocalRepo(entry, scope)) {
+  let changed = false
+  const next = order.flatMap((entry) => {
+    // One row per repo and host: a host row already listed keeps its own position.
+    if (!isMovedLocalRepo(entry, scope) || onHost.has(entry.repoId)) {
       return [entry]
     }
-    // The host already lists it: one row per repo and host, at the earlier position.
-    if (onHost.has(entry.repoId)) {
-      return []
-    }
     onHost.add(entry.repoId)
-    return [{ hostId: scope.destinationHostId, repoId: entry.repoId }]
+    changed = true
+    return [entry, { hostId: scope.destinationHostId, repoId: entry.repoId }]
   })
+  return changed ? next : null
 }
 
 function isMovedLocalRepo(entry: ManualRepoOrderEntry, scope: WslMoveRewriteScope): boolean {
