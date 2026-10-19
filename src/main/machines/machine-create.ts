@@ -146,16 +146,27 @@ export class MachineCreateFlow {
     )
   }
 
-  // Killing local ssh does not stop a remote create, which may only appear in list later.
+  // Killing local ssh does not stop a remote create, which may only appear in list later. Once the
+  // local process has exited, two successful lists at least 10 s apart without the tag settle it as
+  // never created; a failed list proves nothing and only the later checks can.
   private async reconcileCancelled(
     provider: MachineProviderEntry,
     operationId: string
   ): Promise<void> {
     let elapsed = 0
+    let cleanMisses = 0
     for (const at of CANCEL_RECONCILE_DELAYS_MS) {
       await this.deps.delay(at - elapsed)
       elapsed = at
+      const listedFrom = this.client.now()
       if (await this.findCreated(provider, operationId).catch(() => null)) {
+        return
+      }
+      const inventory = this.client.inventory(provider.providerKey)
+      const listed = !inventory.lastFailure && (inventory.listedAt ?? -1) >= listedFrom
+      cleanMisses = listed ? cleanMisses + 1 : 0
+      if (cleanMisses >= 2) {
+        this.client.commit(provider, (current) => dropPendingCreate(current, operationId))
         return
       }
     }
