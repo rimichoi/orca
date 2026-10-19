@@ -23,6 +23,8 @@ export type MachinesSlice = {
   composerMachineRestore: MachineChoice | null
   setComposerMachineRestore: (choice: MachineChoice | null) => void
   applyMachineSnapshot: (snapshot: MachineProviderSnapshot) => void
+  /** Main's full provider list: reported ones apply as pushes do, unreported ones are gone. */
+  replaceMachineSnapshots: (snapshots: readonly MachineProviderSnapshot[]) => void
   setMachineEnvironmentSnapshots: (
     environmentId: string,
     snapshots: readonly MachineProviderSnapshot[]
@@ -72,6 +74,18 @@ export const createMachinesSlice: StateCreator<AppState, [], [], MachinesSlice> 
         ? { machineProviders: { ...state.machineProviders, [snapshot.providerKey]: snapshot } }
         : {}
     ),
+  replaceMachineSnapshots: (snapshots) =>
+    set((state) => {
+      const next: Record<string, MachineProviderSnapshot> = {}
+      let changed = Object.keys(state.machineProviders).length !== snapshots.length
+      for (const snapshot of snapshots) {
+        const held = state.machineProviders[snapshot.providerKey]
+        const keep = held && (!isNewer(snapshot, held) || changesNothing(snapshot, held))
+        next[snapshot.providerKey] = keep ? held : snapshot
+        changed ||= !keep
+      }
+      return changed ? { machineProviders: next } : {}
+    }),
   setMachineEnvironmentSnapshots: (environmentId, snapshots) =>
     set((state) => {
       const held = state.machineEnvironmentProviders[environmentId]

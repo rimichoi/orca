@@ -33,7 +33,32 @@ function machineSlice(
   return 'machineProviders' in state ? state : NO_MACHINE_STATE
 }
 
-/** Loads the cached inventories and follows main's pushes; retries a failed load on the next call. */
+let reloadQueued = false
+
+function loadSnapshots(machinesApi: NonNullable<typeof window.api.machines>): void {
+  loadState = 'loading'
+  machinesApi.snapshots().then(
+    (result) => {
+      loadState = result.ok ? 'ready' : 'idle'
+      if (result.ok) {
+        // Why: a push that landed while this was in flight is newer, and the slice keeps it.
+        useAppStore.getState().replaceMachineSnapshots(result.value)
+      }
+      if (reloadQueued) {
+        reloadQueued = false
+        loadSnapshots(machinesApi)
+      }
+    },
+    () => {
+      loadState = 'idle'
+    }
+  )
+}
+
+/**
+ * Loads the cached inventories and follows main's pushes; retries a failed load on the next call.
+ * Providers come from plugin manifests, so a plugin enabled or removed later re-reads the list.
+ */
 export function ensureMachinesLoaded(): void {
   const machinesApi = window.api?.machines
   if (!machinesApi) {
@@ -42,27 +67,17 @@ export function ensureMachinesLoaded(): void {
   if (!subscribed) {
     subscribed = true
     machinesApi.onChanged((snapshot) => useAppStore.getState().applyMachineSnapshot(snapshot))
-  }
-  if (loadState !== 'idle') {
-    return
-  }
-  loadState = 'loading'
-  machinesApi.snapshots().then(
-    (result) => {
-      if (!result.ok) {
-        loadState = 'idle'
-        return
+    window.api.plugins?.onChanged(() => {
+      if (loadState === 'loading') {
+        reloadQueued = true
+      } else {
+        loadSnapshots(machinesApi)
       }
-      loadState = 'ready'
-      // Why: a push that landed while this was in flight is newer, and the slice keeps it.
-      for (const snapshot of result.value) {
-        useAppStore.getState().applyMachineSnapshot(snapshot)
-      }
-    },
-    () => {
-      loadState = 'idle'
-    }
-  )
+    })
+  }
+  if (loadState === 'idle') {
+    loadSnapshots(machinesApi)
+  }
 }
 
 /** Re-lists this app's providers older than `maxAgeMs`; results arrive through the change push. */

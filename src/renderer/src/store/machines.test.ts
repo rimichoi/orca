@@ -67,14 +67,20 @@ describe('loadEnvironmentMachines', () => {
 })
 
 describe('ensureMachinesLoaded', () => {
-  it('keeps a newer push over a late load, and retries a failed load', async () => {
+  it('keeps a newer push over a late load, retries a failed load, and re-reads on plugin changes', async () => {
     let pushChange: (next: MachineProviderSnapshot) => void = () => {}
+    let pluginsChanged: () => void = () => {}
     const snapshots = vi
       .fn()
       .mockRejectedValueOnce(new Error('ipc'))
       .mockResolvedValueOnce({ ok: true, value: [snapshot(1)] })
     vi.stubGlobal('window', {
       api: {
+        plugins: {
+          onChanged: (callback: () => void) => {
+            pluginsChanged = callback
+          }
+        },
         machines: {
           snapshots,
           onChanged: (callback: (next: MachineProviderSnapshot) => void) => {
@@ -93,6 +99,14 @@ describe('ensureMachinesLoaded', () => {
     await Promise.resolve()
 
     expect(useAppStore.getState().machineProviders['plugin:p/omarchy']?.listedAt).toBe(2)
+
+    // A provider plugin enabled later appears without a reload; a removed one goes.
+    const added = { ...snapshot(5), providerKey: 'plugin:q/docker' as const, name: 'Docker' }
+    snapshots.mockResolvedValueOnce({ ok: true, value: [added] })
+    pluginsChanged()
+    await vi.waitFor(() =>
+      expect(Object.keys(useAppStore.getState().machineProviders)).toEqual(['plugin:q/docker'])
+    )
     vi.unstubAllGlobals()
   })
 })
