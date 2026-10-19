@@ -3,14 +3,22 @@ import type { MachineProviderSnapshot } from '../../../../shared/machine-invento
 import type { MachineChoice } from '@/lib/machines/machine-group-options'
 import type { AppState } from '../types'
 
+/** A worktree's machine wake as its terminals see it: they hold their attach until it clears. */
+export type WorktreeMachineWake = {
+  machineName: string
+  hostId: string
+  /** Plain reason the wake failed; null while it runs. */
+  failure: string | null
+}
+
 export type MachinesSlice = {
   /** This app's machine providers, keyed by provider, as last pushed by main. */
   machineProviders: Readonly<Record<string, MachineProviderSnapshot>>
   /** Paired servers' machine providers, keyed by environment id. */
   machineEnvironmentProviders: Readonly<Record<string, readonly MachineProviderSnapshot[]>>
-  /** Worktrees whose machine is waking, by worktree id, with the machine's name. */
-  wakingMachineByWorktreeId: Readonly<Record<string, string>>
-  setWorktreeMachineWaking: (worktreeId: string, machineName: string | null) => void
+  /** Worktrees opened onto a machine that is waking, or whose wake failed, by worktree id. */
+  machineWakeByWorktreeId: Readonly<Record<string, WorktreeMachineWake>>
+  setWorktreeMachineWake: (worktreeId: string, wake: WorktreeMachineWake | null) => void
   /** The machine a composer had chosen when sign-in closed it; read once when it reopens. */
   composerMachineRestore: MachineChoice | null
   setComposerMachineRestore: (choice: MachineChoice | null) => void
@@ -44,16 +52,16 @@ function changesNothing(
 export const createMachinesSlice: StateCreator<AppState, [], [], MachinesSlice> = (set) => ({
   machineProviders: {},
   machineEnvironmentProviders: {},
-  wakingMachineByWorktreeId: {},
-  setWorktreeMachineWaking: (worktreeId, machineName) =>
+  machineWakeByWorktreeId: {},
+  setWorktreeMachineWake: (worktreeId, wake) =>
     set((state) => {
-      const next = { ...state.wakingMachineByWorktreeId }
-      if (machineName) {
-        next[worktreeId] = machineName
+      const next = { ...state.machineWakeByWorktreeId }
+      if (wake) {
+        next[worktreeId] = wake
       } else {
         delete next[worktreeId]
       }
-      return { wakingMachineByWorktreeId: next }
+      return { machineWakeByWorktreeId: next }
     }),
   composerMachineRestore: null,
   setComposerMachineRestore: (composerMachineRestore) => set({ composerMachineRestore }),

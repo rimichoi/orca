@@ -8,14 +8,15 @@ const mocks = vi.hoisted(() => {
   const state: {
     sources: MachineSources | null
     tabsByWorktree: Record<string, unknown[]>
-  } = { sources: null, tabsByWorktree: {} }
+    machineWakeByWorktreeId: Record<string, unknown>
+  } = { sources: null, tabsByWorktree: {}, machineWakeByWorktreeId: {} }
   return {
     state,
     callRuntimeRpc: vi.fn(),
     toastError: vi.fn(),
     toastLoading: vi.fn(() => 'toast-1'),
     toastDismiss: vi.fn(),
-    setWaking: vi.fn()
+    setWake: vi.fn()
   }
 })
 
@@ -24,7 +25,8 @@ vi.mock('@/store', () => ({
   useAppStore: {
     getState: () => ({
       tabsByWorktree: mocks.state.tabsByWorktree,
-      setWorktreeMachineWaking: mocks.setWaking
+      machineWakeByWorktreeId: mocks.state.machineWakeByWorktreeId,
+      setWorktreeMachineWake: mocks.setWake
     })
   }
 }))
@@ -132,15 +134,59 @@ describe('wakeMachineForHost', () => {
     })
   })
 
-  it('names the wake in the open terminals’ banner instead of a second toast', async () => {
+  it('marks the worktree until wake and connect settle, so its terminals hold their attach', async () => {
     mocks.state.sources = { self: [snapshot({})], environments: {} }
     mocks.state.tabsByWorktree = { 'wt-1': [{}] }
+    let resolveConnect: (value: unknown) => void = () => {}
+    machines.connect.mockReturnValueOnce(new Promise((resolve) => (resolveConnect = resolve)))
+
+    const opening = wakeMachineForHost('ssh:machine-a', 'wt-1')
+    // Joining an in-flight wake still marks the second worktree.
+    const joining = wakeMachineForHost('ssh:machine-a', 'wt-2')
+    await vi.waitFor(() => expect(machines.connect).toHaveBeenCalledTimes(1))
+
+    expect(mocks.toastLoading).not.toHaveBeenCalled()
+    expect(mocks.setWake).toHaveBeenCalledWith('wt-1', {
+      machineName: 'omarchy-dev',
+      hostId: 'ssh:machine-a',
+      failure: null
+    })
+    expect(mocks.setWake).toHaveBeenCalledWith('wt-2', expect.objectContaining({ failure: null }))
+    expect(mocks.setWake).not.toHaveBeenCalledWith('wt-1', null)
+
+    resolveConnect({ ok: true, value: { kind: 'ssh', sshTargetId: 'machine-a' } })
+    await Promise.all([opening, joining])
+
+    expect(machines.wake).toHaveBeenCalledTimes(1)
+    expect(mocks.setWake).toHaveBeenCalledWith('wt-1', null)
+    expect(mocks.setWake).toHaveBeenLastCalledWith('wt-2', null)
+    mocks.state.tabsByWorktree = {}
+  })
+
+  it('keeps a failed wake on the worktree for its terminals’ Retry, with no second toast', async () => {
+    mocks.state.sources = { self: [snapshot({})], environments: {} }
+    mocks.state.tabsByWorktree = { 'wt-1': [{}] }
+    machines.wake.mockResolvedValue({ ok: false, code: 'timeout', message: 'slow' })
 
     await wakeMachineForHost('ssh:machine-a', 'wt-1')
 
-    expect(mocks.toastLoading).not.toHaveBeenCalled()
-    expect(mocks.setWaking).toHaveBeenNthCalledWith(1, 'wt-1', 'omarchy-dev')
-    expect(mocks.setWaking).toHaveBeenLastCalledWith('wt-1', null)
+    expect(mocks.toastError).not.toHaveBeenCalled()
+    expect(mocks.setWake).toHaveBeenLastCalledWith('wt-1', {
+      machineName: 'omarchy-dev',
+      hostId: 'ssh:machine-a',
+      failure: 'The provider didn’t answer in time.'
+    })
     mocks.state.tabsByWorktree = {}
+  })
+
+  it('releases held terminals when Retry finds the machine already running', async () => {
+    mocks.state.sources = { self: [snapshot({ state: 'running' })], environments: {} }
+    mocks.state.machineWakeByWorktreeId = { 'wt-1': {} }
+
+    await wakeMachineForHost('ssh:machine-a', 'wt-1')
+
+    expect(machines.wake).not.toHaveBeenCalled()
+    expect(mocks.setWake).toHaveBeenCalledWith('wt-1', null)
+    mocks.state.machineWakeByWorktreeId = {}
   })
 })

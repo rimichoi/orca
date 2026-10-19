@@ -173,9 +173,10 @@ export function TerminalPaneRecoveryPortals({
     controller
   const wslHostUnavailable = useWslHostUnavailableReason(controller.worktreeId)
   const pairingRefusedEnvironmentId = useManagedPairingRefusedEnvironmentId(controller.worktreeId)
-  const wakingMachineName = useAppStore(
-    (state) => state.wakingMachineByWorktreeId[controller.worktreeId] ?? null
-  )
+  const wakingMachineName = useAppStore((state) => {
+    const wake = state.machineWakeByWorktreeId[controller.worktreeId]
+    return wake && !wake.failure ? wake.machineName : null
+  })
   if (showSshReconnectOverlay) {
     return null
   }

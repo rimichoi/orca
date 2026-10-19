@@ -3490,7 +3490,8 @@
             "disconnectedBody": "Automatic retries stopped. Reconnect to resume this terminal session.",
             "reconnectButton": "Reconnect",
             "wakingTitle": "Activando {{name}}…",
-            "wakingBody": "Este terminal se reanudará cuando la máquina esté en ejecución."
+            "wakingBody": "Este terminal se reanudará cuando la máquina esté en ejecución.",
+            "retryWakeButton": "Reintentar"
           },
           "TerminalRestoringPlaceholder": {
             "restoring": "Restaurando terminal…"

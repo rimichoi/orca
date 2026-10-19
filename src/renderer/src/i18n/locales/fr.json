@@ -3624,7 +3624,8 @@
             "disconnectedBody": "Les tentatives automatiques sont interrompues. Reconnectez-vous pour reprendre cette session de terminal.",
             "reconnectButton": "Reconnecter",
             "wakingTitle": "Réveil de {{name}}…",
-            "wakingBody": "Ce terminal reprendra dès que la machine sera en marche."
+            "wakingBody": "Ce terminal reprendra dès que la machine sera en marche.",
+            "retryWakeButton": "Réessayer"
           },
           "TerminalQuickCommandsSubmenu": {
             "3ccc7981bb": "Hôte indisponible",

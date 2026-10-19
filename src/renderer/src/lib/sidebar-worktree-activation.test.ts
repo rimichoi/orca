@@ -113,4 +113,18 @@ describe('sidebar worktree activation', () => {
       'folder:folder-workspace-2'
     )
   })
+
+  it('marks the machine wake before navigation mounts the worktree’s terminals', async () => {
+    mocks.hasMachineProviders.mockReturnValueOnce(true)
+    const order: string[] = []
+    mocks.wakeMachineForHost.mockImplementationOnce(async () => {
+      order.push('wake')
+    })
+    mocks.activateAndRevealWorktree.mockImplementationOnce(() => order.push('activate'))
+
+    await activateWorktreeFromSidebar('wt-machine', 'ssh:machine-a')
+
+    expect(mocks.wakeMachineForHost).toHaveBeenCalledWith('ssh:machine-a', 'wt-machine')
+    expect(order).toEqual(['wake', 'activate'])
+  })
 })

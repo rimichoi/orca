@@ -16,9 +16,10 @@ function hexLightness(color: string): number | null {
 
 /**
  * The colour terminals paint behind their text, so a surface they replace can match it. Null when
- * the terminal's light/dark differs from the app's, since app text would then be unreadable on it.
+ * the terminal's light/dark differs from the app's, since app text would then be unreadable on it,
+ * unless `matchAppMode` is off for a surface whose text sits on its own card.
  */
-export function useTerminalSurfaceBackground(): string | null {
+export function useTerminalSurfaceBackground({ matchAppMode = true } = {}): string | null {
   const settings = useAppStore((state) => state.settings)
   const systemPrefersDark = useSystemPrefersDark()
   return useMemo(() => {
@@ -35,6 +36,6 @@ export function useTerminalSurfaceBackground(): string | null {
     if (!background || lightness === null) {
       return null
     }
-    return lightness < 0.5 === (appearance.mode === 'dark') ? background : null
-  }, [settings, systemPrefersDark])
+    return !matchAppMode || lightness < 0.5 === (appearance.mode === 'dark') ? background : null
+  }, [matchAppMode, settings, systemPrefersDark])
 }

@@ -3495,7 +3495,8 @@
             "disconnectedBody": "自动重试已停止。重新连接以恢复此终端会话。",
             "reconnectButton": "重新连接",
             "wakingTitle": "正在唤醒 {{name}}…",
-            "wakingBody": "机器运行后此终端将恢复。"
+            "wakingBody": "机器运行后此终端将恢复。",
+            "retryWakeButton": "重试"
           },
           "TerminalLinkActionPopover": {
             "openLink": "打开链接",

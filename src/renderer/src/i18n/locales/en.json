@@ -3762,7 +3762,8 @@
             "disconnectedBody": "Automatic retries stopped. Reconnect to resume this terminal session.",
             "reconnectButton": "Reconnect",
             "wakingTitle": "Waking {{name}}…",
-            "wakingBody": "This terminal resumes once the machine is running."
+            "wakingBody": "This terminal resumes once the machine is running.",
+            "retryWakeButton": "Retry"
           },
           "TerminalQuickCommandsSubmenu": {
             "3ccc7981bb": "Host unavailable",

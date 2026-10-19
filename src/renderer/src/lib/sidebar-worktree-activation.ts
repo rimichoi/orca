@@ -17,33 +17,42 @@ export async function activateWorktreeFromSidebar(
   executionHostId?: ExecutionHostId
 ): Promise<void> {
   const workspaceScope = parseWorkspaceKey(worktreeId)
+  // Why: the wake starts (and marks the worktree) before navigation mounts its terminals, so they
+  // hold their attach until wake and connect settle. Navigation still never waits on it.
   if (workspaceScope?.type === 'folder') {
+    const wake = startMachineWake(
+      () => executionHostId ?? getFolderWorkspaceHostIdById(workspaceScope.folderWorkspaceId),
+      worktreeId
+    )
     activateAndRevealFolderWorkspace(workspaceScope.folderWorkspaceId, {
       navigationIntent: 'user-open',
       ...(executionHostId ? { executionHostId } : {})
     })
-    if (hasMachineProviders()) {
-      await wakeMachineForHost(
-        executionHostId ?? getFolderWorkspaceHostIdById(workspaceScope.folderWorkspaceId),
-        worktreeId
-      )
-    }
+    await wake
     return
   }
-  // Keep navigation independent from an optional runtime wake IPC.
+  const wake = startMachineWake(() => executionHostId ?? getWorktreeHostId(worktreeId), worktreeId)
   activateAndRevealWorktree(worktreeId, {
     navigationIntent: 'user-open',
     revealInSidebar: false,
     ...(executionHostId ? { executionHostId } : {})
   })
 
-  await Promise.all([
-    resumeEphemeralVmWorkspace(worktreeId),
+  await Promise.all([resumeEphemeralVmWorkspace(worktreeId), wake])
+}
+
+function startMachineWake(
+  hostId: () => ExecutionHostId | null,
+  worktreeId: string
+): Promise<void> | undefined {
+  try {
     // Why: skip the host lookup entirely for the common case of no machine providers.
-    hasMachineProviders()
-      ? wakeMachineForHost(executionHostId ?? getWorktreeHostId(worktreeId), worktreeId)
-      : undefined
-  ])
+    return hasMachineProviders() ? wakeMachineForHost(hostId(), worktreeId) : undefined
+  } catch (error) {
+    // Why: this runs before navigation now, and a wake lookup must never block opening a worktree.
+    console.error('Failed to start the machine wake for', worktreeId, error)
+    return undefined
+  }
 }
 
 function getFolderWorkspaceHostIdById(folderWorkspaceId: string): ExecutionHostId | null {

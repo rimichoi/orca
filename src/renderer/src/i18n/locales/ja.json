@@ -3495,7 +3495,8 @@
             "disconnectedBody": "自動再試行が停止しました。このターミナルセッションを再開するには再接続してください。",
             "reconnectButton": "再接続",
             "wakingTitle": "{{name}} を起動中…",
-            "wakingBody": "マシンが起動するとこのターミナルは再開します。"
+            "wakingBody": "マシンが起動するとこのターミナルは再開します。",
+            "retryWakeButton": "再試行"
           },
           "TerminalLinkActionPopover": {
             "openLink": "リンクを開く",
