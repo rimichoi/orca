@@ -6,6 +6,7 @@ import { ClaudeOldTerminalBanner } from './ClaudeOldTerminalBanner'
 import { ClaudeDiffPanelNoticeBanner } from './ClaudeDiffPanelNoticeBanner'
 import { NewerDaemonHoldBanner } from './NewerDaemonHoldBanner'
 import { TerminalSshReconnectOverlay } from './TerminalSshReconnectOverlay'
+import { useAppStore } from '@/store'
 import { useWslHostUnavailableReason } from './use-wsl-host-unavailable-reason'
 import { useManagedPairingRefusedEnvironmentId } from './use-managed-pairing-refused'
 import { DelayedRemoteRuntimeReconnectBanner } from './TerminalRemoteRuntimeReconnectBanner'
@@ -172,6 +173,9 @@ export function TerminalPaneRecoveryPortals({
     controller
   const wslHostUnavailable = useWslHostUnavailableReason(controller.worktreeId)
   const pairingRefusedEnvironmentId = useManagedPairingRefusedEnvironmentId(controller.worktreeId)
+  const wakingMachineName = useAppStore(
+    (state) => state.wakingMachineByWorktreeId[controller.worktreeId] ?? null
+  )
   if (showSshReconnectOverlay) {
     return null
   }
@@ -204,6 +208,7 @@ export function TerminalPaneRecoveryPortals({
             }}
             wslHostUnavailable={wslHostUnavailable}
             pairingRefused={pairingRefusedEnvironmentId !== null}
+            wakingMachineName={wakingMachineName}
           />,
           pane.container,
           `remote-runtime-reconnect-${pane.id}`
