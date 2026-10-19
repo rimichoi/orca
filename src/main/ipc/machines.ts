@@ -5,7 +5,8 @@ import type {
   MachineTarget
 } from '../../shared/machine-inventory'
 import type { MachineLifetime } from '../../shared/machine-provider-protocol'
-import { getRepoExecutionHostId } from '../../shared/execution-host'
+import { listEnvironments } from '../../shared/runtime-environment-store'
+import { isMachineHostReferenced } from '../machines/machine-host-references'
 import { MACHINES_DISABLED, toMachineActionResult } from '../machines/machine-action-result'
 import { createDesktopMachineService } from '../machines/desktop-machine-service'
 import type { Store } from '../persistence'
@@ -42,8 +43,10 @@ export function registerMachineHandlers(store: Store, pluginService?: PluginServ
     pluginService,
     isEnabled: () => isEnabled(store),
     isHostReferenced: (hostId) =>
-      [...store.getRepos(), ...store.getFolderWorkspaces()].some(
-        (project) => getRepoExecutionHostId(project) === hostId
+      isMachineHostReferenced(
+        store,
+        () => listEnvironments(app.getPath('userData')).map((environment) => environment.id),
+        hostId
       )
   })
   const onTarget =
