@@ -17,6 +17,7 @@ import type { PluginService } from '../plugins/plugin-service'
 const CHANNELS = [
   'machines:snapshots',
   'machines:expiryWarnings',
+  'machines:workAtRisk',
   'machines:list',
   'machines:get',
   'machines:create',
@@ -41,7 +42,7 @@ export function registerMachineHandlers(store: Store, pluginService?: PluginServ
   for (const channel of CHANNELS) {
     ipcMain.removeHandler(channel)
   }
-  const { service, expiryWarnings } = createDesktopMachineService({
+  const { service, expiryWarnings, workAtRisk } = createDesktopMachineService({
     userDataPath: app.getPath('userData'),
     pluginService,
     isEnabled: () => isEnabled(store),
@@ -63,6 +64,9 @@ export function registerMachineHandlers(store: Store, pluginService?: PluginServ
       act(store, () => run(args.providerKey, args.machineId))
 
   ipcMain.handle('machines:snapshots', () => act(store, () => service.snapshots()))
+  ipcMain.handle('machines:workAtRisk', (_event, args: MachineTarget) =>
+    act(store, () => workAtRisk(args))
+  )
   ipcMain.handle('machines:expiryWarnings', () => act(store, () => expiryWarnings.activeWarnings()))
   ipcMain.handle(
     'machines:list',

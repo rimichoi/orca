@@ -20610,9 +20610,13 @@
   "machines": {
     "expiryWarning": {
       "title": "{{machine}} 将于 {{time}} 删除",
-      "unknownWork": "Orca 无法检查其中未保存的工作。请在此之前推送你需要的内容。",
+      "unknownWork": "Orca 无法检查其中是否有未保存的工作。",
       "noWork": "其中的所有内容都会一起删除。Orca 没有发现未提交或未推送的工作。",
-      "work": "{{uncommitted}} 个未提交的更改和 {{unpushed}} 个未推送的提交将会丢失，除非你先推送。"
+      "work": "{{work}}将会丢失，除非你先推送。",
+      "uncommitted_one": "{{count}} 个未提交的更改",
+      "uncommitted_other": "{{count}} 个未提交的更改",
+      "unpushed_one": "{{count}} 个未推送的提交",
+      "unpushed_other": "{{count}} 个未推送的提交"
     }
   }
 }

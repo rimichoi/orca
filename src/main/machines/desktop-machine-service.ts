@@ -1,5 +1,9 @@
 import { BrowserWindow } from 'electron'
-import { machineProviderKey, type MachineRecord } from '../../shared/machine-inventory'
+import {
+  machineProviderKey,
+  type MachineRecord,
+  type MachineTarget
+} from '../../shared/machine-inventory'
 import { getSshConnectionStore } from '../ipc/ssh/ssh'
 import {
   disconnectRegisteredSshTarget,
@@ -15,7 +19,7 @@ import type { MachineSshTargets } from './machine-connect'
 import { MachineService, type MachineProviderEntry } from './machine-service'
 import { MachineExpiryWarnings } from './machine-expiry-warnings'
 import { machineExpiryNotification } from './machine-expiry-notification'
-import { readMachineWorkAtRisk } from './machine-work-at-risk'
+import { readMachineWorkAtRisk, type MachineWorkAtRisk } from './machine-work-at-risk'
 import { dispatchDesktopNotification } from '../ipc/notifications'
 import { callRuntimeEnvironment } from '../ipc/runtime-environments/runtime-environment-transport-routing'
 import {
@@ -80,9 +84,23 @@ export function createDesktopMachineService(options: {
   isEnabled: () => boolean
   isHostReferenced: (hostId: string) => boolean
   retireEnvironment: (environmentId: string) => void
-}): { service: MachineService; expiryWarnings: MachineExpiryWarnings } {
+}): {
+  service: MachineService
+  expiryWarnings: MachineExpiryWarnings
+  /** Uncommitted and unpushed work on a machine; null when it could not be read. */
+  workAtRisk: (target: MachineTarget) => Promise<MachineWorkAtRisk | null>
+} {
   const { userDataPath, pluginService, isEnabled, isHostReferenced, retireEnvironment } = options
   let expiryWarnings: MachineExpiryWarnings | null = null
+  // A machine's worktrees live in its Orca server's catalog, not on this desktop.
+  const readWorkAtRisk = (machine: MachineRecord): Promise<MachineWorkAtRisk | null> => {
+    const environmentId = machine.managedEnvironmentId ?? machine.runtimeEnvironmentId
+    return environmentId
+      ? readMachineWorkAtRisk((method, params, timeoutMs) =>
+          callRuntimeEnvironment(userDataPath, environmentId, method, params, timeoutMs)
+        )
+      : Promise.resolve(null)
+  }
   const service = new MachineService({
     userDataPath,
     isHostReferenced,
@@ -109,15 +127,7 @@ export function createDesktopMachineService(options: {
     snapshots: () => (isEnabled() ? service.snapshots() : []),
     hasWarned: service.expiryWarningLog.has,
     markWarned: service.expiryWarningLog.mark,
-    readWorkAtRisk: (machine) => {
-      // A machine's worktrees live in its Orca server's catalog, not on this desktop.
-      const environmentId = machine.managedEnvironmentId ?? machine.runtimeEnvironmentId
-      return environmentId
-        ? readMachineWorkAtRisk((method, params, timeoutMs) =>
-            callRuntimeEnvironment(userDataPath, environmentId, method, params, timeoutMs)
-          )
-        : Promise.resolve(null)
-    },
+    readWorkAtRisk,
     warn: (warning, machine, key) => {
       const hostId = machineHostId(machine)
       void dispatchDesktopNotification({
@@ -133,7 +143,17 @@ export function createDesktopMachineService(options: {
   })
   expiryWarnings.reschedule()
   registered = { service, isEnabled }
-  return { service, expiryWarnings }
+  return {
+    service,
+    expiryWarnings,
+    workAtRisk: (target) => {
+      const machine = service
+        .snapshots()
+        .find((snapshot) => snapshot.providerKey === target.providerKey)
+        ?.machines.find((record) => record.id === target.machineId)
+      return machine ? readWorkAtRisk(machine) : Promise.resolve(null)
+    }
+  }
 }
 
 /** The execution host a per-host notification mute names for this machine's worktrees. */

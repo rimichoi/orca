@@ -18,15 +18,19 @@ describe('machineExpiryNotification', () => {
   it('says unsaved work could not be checked rather than leaving it out', () => {
     const banner = machineExpiryNotification({ ...warning, workAtRisk: null })
     expect(banner.title).toMatch(/^pr-2231 deletes at /)
-    expect(banner.body).toBe(
-      'Orca couldn’t check unsaved work on it. Push anything you need before then.'
-    )
+    expect(banner.body).toBe('Orca couldn’t check for unsaved work on it.')
   })
 
   it('counts the work at risk, and says when there is none', () => {
     expect(
       machineExpiryNotification({ ...warning, workAtRisk: { uncommitted: 2, unpushed: 3 } }).body
-    ).toBe('2 uncommitted changes and 3 unpushed commits on it will be lost unless you push first.')
+    ).toBe('2 uncommitted changes, 3 unpushed commits on it will be lost unless you push first.')
+    expect(
+      machineExpiryNotification({ ...warning, workAtRisk: { uncommitted: 1, unpushed: 0 } }).body
+    ).toBe('1 uncommitted change on it will be lost unless you push first.')
+    expect(
+      machineExpiryNotification({ ...warning, workAtRisk: { uncommitted: 0, unpushed: 1 } }).body
+    ).toBe('1 unpushed commit on it will be lost unless you push first.')
     expect(
       machineExpiryNotification({ ...warning, workAtRisk: { uncommitted: 0, unpushed: 0 } }).body
     ).toMatch(/no uncommitted or unpushed work/)

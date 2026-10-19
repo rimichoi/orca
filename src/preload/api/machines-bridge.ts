@@ -9,6 +9,7 @@ import type { PreloadApi } from '../api-types'
 export const machinesApi = {
   snapshots: () => ipcRenderer.invoke('machines:snapshots'),
   expiryWarnings: () => ipcRenderer.invoke('machines:expiryWarnings'),
+  workAtRisk: (args) => ipcRenderer.invoke('machines:workAtRisk', args),
   onExpiryWarning: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, warning: MachineExpiryWarning): void =>
       callback(warning)

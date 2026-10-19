@@ -1,6 +1,24 @@
 import type { MachineExpiryWarning } from '../../shared/machine-inventory'
 import { translateMain } from '../i18n/main-i18n'
 
+function uncommittedPhrase(count: number): string {
+  return count === 1
+    ? translateMain('machines.expiryWarning.uncommitted_one', '{{count}} uncommitted change', {
+        count
+      })
+    : translateMain('machines.expiryWarning.uncommitted_other', '{{count}} uncommitted changes', {
+        count
+      })
+}
+
+function unpushedPhrase(count: number): string {
+  return count === 1
+    ? translateMain('machines.expiryWarning.unpushed_one', '{{count}} unpushed commit', { count })
+    : translateMain('machines.expiryWarning.unpushed_other', '{{count}} unpushed commits', {
+        count
+      })
+}
+
 /** The banner for a machine about to be deleted; unknown work is said, never left out. */
 export function machineExpiryNotification(warning: MachineExpiryWarning): {
   title: string
@@ -20,11 +38,15 @@ export function machineExpiryNotification(warning: MachineExpiryWarning): {
       title,
       body: translateMain(
         'machines.expiryWarning.unknownWork',
-        'Orca couldn’t check unsaved work on it. Push anything you need before then.'
+        'Orca couldn’t check for unsaved work on it.'
       )
     }
   }
-  if (work.uncommitted === 0 && work.unpushed === 0) {
+  const parts = [
+    ...(work.uncommitted > 0 ? [uncommittedPhrase(work.uncommitted)] : []),
+    ...(work.unpushed > 0 ? [unpushedPhrase(work.unpushed)] : [])
+  ]
+  if (parts.length === 0) {
     return {
       title,
       body: translateMain(
@@ -37,8 +59,8 @@ export function machineExpiryNotification(warning: MachineExpiryWarning): {
     title,
     body: translateMain(
       'machines.expiryWarning.work',
-      '{{uncommitted}} uncommitted changes and {{unpushed}} unpushed commits on it will be lost unless you push first.',
-      { uncommitted: work.uncommitted, unpushed: work.unpushed }
+      '{{work}} on it will be lost unless you push first.',
+      { work: parts.join(', ') }
     )
   }
 }

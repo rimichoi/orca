@@ -20610,9 +20610,13 @@
   "machines": {
     "expiryWarning": {
       "title": "{{machine}} sera supprimée à {{time}}",
-      "unknownWork": "Orca n’a pas pu vérifier le travail non enregistré. Poussez ce dont vous avez besoin avant.",
+      "unknownWork": "Orca n’a pas pu vérifier s’il y a du travail non enregistré.",
       "noWork": "Tout ce qu’elle contient sera supprimé avec elle. Orca n’a trouvé aucun travail non validé ou non poussé.",
-      "work": "{{uncommitted}} modifications non validées et {{unpushed}} commits non poussés seront perdus si vous ne poussez pas avant."
+      "work": "{{work}} seront perdus si vous ne poussez pas avant.",
+      "uncommitted_one": "{{count}} modification non validée",
+      "uncommitted_other": "{{count}} modifications non validées",
+      "unpushed_one": "{{count}} commit non poussé",
+      "unpushed_other": "{{count}} commits non poussés"
     }
   }
 }

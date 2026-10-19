@@ -3373,6 +3373,14 @@
       "open": "Open workspace linked to {{key}}"
     }
   },
+  "machines": {
+    "expiryWarning": {
+      "uncommitted_one": "{{count}} uncommitted change",
+      "uncommitted_other": "{{count}} uncommitted changes",
+      "unpushed_one": "{{count}} unpushed commit",
+      "unpushed_other": "{{count}} unpushed commits"
+    }
+  },
   "menu": {
     "quitApp": "Quit {{appName}}"
   },
