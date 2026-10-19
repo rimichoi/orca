@@ -18,7 +18,8 @@ const storeSchema = z.object({
         pendingCreates: z.array(z.object({ operationId: z.string() }).passthrough())
       })
       .passthrough()
-  )
+  ),
+  warnedExpiries: z.array(z.string()).optional()
 })
 
 export function getMachineInventoryStorePath(userDataPath: string): string {

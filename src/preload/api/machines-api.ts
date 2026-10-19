@@ -1,6 +1,7 @@
 import type {
   MachineActionResult,
   MachineConnection,
+  MachineExpiryWarning,
   MachineProgressEvent,
   MachineProviderKey,
   MachineProviderSnapshot,
@@ -38,6 +39,10 @@ export type MachinesApi = {
     args: MachineTarget & { operationId?: string }
   ) => Promise<MachineActionResult<MachineConnection>>
   onChanged: (callback: (snapshot: MachineProviderSnapshot) => void) => () => void
+  /** Expiry warnings main already raised for machines that still exist (for a reloaded window). */
+  expiryWarnings: () => Promise<MachineActionResult<MachineExpiryWarning[]>>
+  /** Main raised a temporary machine's 15-minute warning (its desktop notification is main's). */
+  onExpiryWarning: (callback: (warning: MachineExpiryWarning) => void) => () => void
   /** Provider stderr for a create, wake or connect the UI tagged with an operationId. */
   onProgress: (callback: (event: MachineProgressEvent) => void) => () => void
 }

@@ -87,6 +87,21 @@ export class MachineProviderClient {
     return result
   }
 
+  hasWarnedExpiry(key: string): boolean {
+    return this.store.warnedExpiries?.includes(key) ?? false
+  }
+
+  /** Records a warning; keys for machines this host no longer tracks are dropped to stay bounded. */
+  markWarnedExpiry(key: string, liveKeys: ReadonlySet<string>): void {
+    this.store.warnedExpiries = [
+      ...(this.store.warnedExpiries ?? []).filter((existing) => liveKeys.has(existing)),
+      key
+    ]
+    if (this.writable) {
+      writeMachineInventoryStore(this.deps.userDataPath, this.store)
+    }
+  }
+
   // Once per session per server: the retirement itself persists across launches.
   private retireGoneEnvironments(inventory: MachineProviderInventory): void {
     const retire = this.deps.retireEnvironment

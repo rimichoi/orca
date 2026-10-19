@@ -1,9 +1,20 @@
 import { ipcRenderer } from 'electron'
-import type { MachineProgressEvent, MachineProviderSnapshot } from '../../shared/machine-inventory'
+import type {
+  MachineExpiryWarning,
+  MachineProgressEvent,
+  MachineProviderSnapshot
+} from '../../shared/machine-inventory'
 import type { PreloadApi } from '../api-types'
 
 export const machinesApi = {
   snapshots: () => ipcRenderer.invoke('machines:snapshots'),
+  expiryWarnings: () => ipcRenderer.invoke('machines:expiryWarnings'),
+  onExpiryWarning: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, warning: MachineExpiryWarning): void =>
+      callback(warning)
+    ipcRenderer.on('machines:expiryWarning', listener)
+    return () => ipcRenderer.removeListener('machines:expiryWarning', listener)
+  },
   list: (args) => ipcRenderer.invoke('machines:list', args),
   get: (args) => ipcRenderer.invoke('machines:get', args),
   create: (args) => ipcRenderer.invoke('machines:create', args),

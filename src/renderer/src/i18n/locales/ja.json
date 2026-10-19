@@ -20606,5 +20606,13 @@
       "preparingLabel": "更新を準備中",
       "preparingAriaLabel": "更新を準備中。クリックして展開します。"
     }
+  },
+  "machines": {
+    "expiryWarning": {
+      "title": "{{machine}} は {{time}} に削除されます",
+      "unknownWork": "Orca は未保存の作業を確認できませんでした。必要なものはそれまでに push してください。",
+      "noWork": "中身はすべて一緒に削除されます。未コミットや未 push の作業は見つかりませんでした。",
+      "work": "{{uncommitted}} 件の未コミットの変更と {{unpushed}} 件の未 push のコミットは、push しないと失われます。"
+    }
   }
 }

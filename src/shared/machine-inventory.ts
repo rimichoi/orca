@@ -53,6 +53,26 @@ export type MachineProviderInventory = {
 export type MachineInventoryStore = {
   version: 1
   providers: Record<string, MachineProviderInventory>
+  /** `machineExpiryWarningKey`s already warned, so a relaunch never repeats a warning. */
+  warnedExpiries?: string[]
+}
+
+/** One warning per machine per expiry: a provider that moves the expiry earns a new one. */
+export function machineExpiryWarningKey(
+  machine: Pick<MachineRecord, 'providerKey' | 'id' | 'expiresAt'>
+): string {
+  return `${machine.providerKey}/${machine.id}@${machine.expiresAt ?? ''}`
+}
+
+/** What main tells the renderer when a temporary machine enters its last 15 minutes. */
+export type MachineExpiryWarning = {
+  providerKey: MachineProviderKey
+  machineId: string
+  name: string
+  /** Local epoch ms, already shifted from the provider's clock. */
+  expiresAt: number
+  /** null: the machine's worktrees could not be read, so unsaved work is unknown. */
+  workAtRisk: { uncommitted: number; unpushed: number } | null
 }
 
 /** What clients see for one provider: its declaration plus the cached inventory. */

@@ -76,6 +76,13 @@ export class MachineService {
     return this.client.providers().map((provider) => this.client.snapshot(provider))
   }
 
+  /** The persisted expiry-warning dedupe, kept with the inventory it is keyed by. */
+  readonly expiryWarningLog = {
+    has: (key: string) => this.client.hasWarnedExpiry(key),
+    mark: (key: string, liveKeys: ReadonlySet<string>) =>
+      this.client.markWarnedExpiry(key, liveKeys)
+  }
+
   /** Per-provider single-flight; a failing provider backs off unless the caller forces it. */
   async list(
     providerKey: MachineProviderKey,

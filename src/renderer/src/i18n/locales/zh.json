@@ -20606,5 +20606,13 @@
       "preparingLabel": "正在准备更新",
       "preparingAriaLabel": "正在准备更新。点击展开。"
     }
+  },
+  "machines": {
+    "expiryWarning": {
+      "title": "{{machine}} 将于 {{time}} 删除",
+      "unknownWork": "Orca 无法检查其中未保存的工作。请在此之前推送你需要的内容。",
+      "noWork": "其中的所有内容都会一起删除。Orca 没有发现未提交或未推送的工作。",
+      "work": "{{uncommitted}} 个未提交的更改和 {{unpushed}} 个未推送的提交将会丢失，除非你先推送。"
+    }
   }
 }
