@@ -6,6 +6,8 @@ import type {
 } from '../../shared/machine-inventory'
 import type { MachineLifetime } from '../../shared/machine-provider-protocol'
 import { listEnvironments } from '../../shared/runtime-environment-store'
+import { retireRuntimeEnvironment } from './runtime-environments/runtime-environment-retirement-gate'
+import { invalidateRuntimeEnvironmentTransport } from './runtime-environments/runtime-environments'
 import { isMachineHostReferenced } from '../machines/machine-host-references'
 import { MACHINES_DISABLED, toMachineActionResult } from '../machines/machine-action-result'
 import { createDesktopMachineService } from '../machines/desktop-machine-service'
@@ -47,7 +49,12 @@ export function registerMachineHandlers(store: Store, pluginService?: PluginServ
         store,
         () => listEnvironments(app.getPath('userData')).map((environment) => environment.id),
         hostId
-      )
+      ),
+    retireEnvironment: (environmentId) =>
+      retireRuntimeEnvironment(environmentId, {
+        userDataPath: app.getPath('userData'),
+        invalidateTransport: invalidateRuntimeEnvironmentTransport
+      })
   })
   const onTarget =
     (run: (key: MachineProviderKey, machineId: string) => Promise<unknown>) =>

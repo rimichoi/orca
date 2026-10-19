@@ -66,11 +66,13 @@ export function createDesktopMachineService(options: {
   pluginService?: PluginService
   isEnabled: () => boolean
   isHostReferenced: (hostId: string) => boolean
+  retireEnvironment: (environmentId: string) => void
 }): MachineService {
-  const { userDataPath, pluginService, isEnabled, isHostReferenced } = options
+  const { userDataPath, pluginService, isEnabled, isHostReferenced, retireEnvironment } = options
   const service = new MachineService({
     userDataPath,
     isHostReferenced,
+    retireEnvironment,
     listProviders: () => listPluginMachineProviders(pluginService),
     onChanged: (snapshot) => broadcast('machines:changed', snapshot),
     onProgress: (event) => broadcast('machines:progress', event),

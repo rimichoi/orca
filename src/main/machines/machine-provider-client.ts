@@ -27,6 +27,8 @@ export type MachineProviderClientDeps = {
   listProviders: () => readonly MachineProviderEntry[]
   onChanged?: (snapshot: MachineProviderSnapshot) => void
   onProgress?: (event: MachineProgressEvent) => void
+  /** Stops dialing a gone machine's managed server; its record stays for the Gone link. */
+  retireEnvironment?: (environmentId: string) => void
   runVerb?: typeof runMachineProviderVerb
   now?: () => number
 }
@@ -44,6 +46,7 @@ export class MachineProviderClient {
   private readonly store: MachineInventoryStore
   private readonly writable: boolean
   private readonly capabilitiesChecked = new Set<string>()
+  private readonly retiredEnvironments = new Set<string>()
 
   constructor(private readonly deps: MachineProviderClientDeps) {
     const loaded = readMachineInventoryStore(deps.userDataPath)
@@ -76,11 +79,35 @@ export class MachineProviderClient {
   /** Applies a change to one provider's inventory, persists, and publishes its snapshot. */
   commit<T>(provider: MachineProviderEntry, change: (inventory: MachineProviderInventory) => T): T {
     const result = change(this.inventory(provider.providerKey))
+    this.retireGoneEnvironments(this.inventory(provider.providerKey))
     if (this.writable) {
       writeMachineInventoryStore(this.deps.userDataPath, this.store)
     }
     this.deps.onChanged?.(this.snapshot(provider))
     return result
+  }
+
+  // Once per session per server: the retirement itself persists across launches.
+  private retireGoneEnvironments(inventory: MachineProviderInventory): void {
+    const retire = this.deps.retireEnvironment
+    if (!retire) {
+      return
+    }
+    for (const machine of inventory.machines) {
+      const environmentId = machine.managedEnvironmentId
+      if (
+        machine.state === 'gone' &&
+        environmentId &&
+        !this.retiredEnvironments.has(environmentId)
+      ) {
+        this.retiredEnvironments.add(environmentId)
+        try {
+          retire(environmentId)
+        } catch (error) {
+          console.warn(`[machines] could not retire server ${environmentId}:`, error)
+        }
+      }
+    }
   }
 
   snapshot(provider: MachineProviderEntry): MachineProviderSnapshot {

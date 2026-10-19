@@ -114,6 +114,36 @@ describe('MachineService recovery', () => {
     expect(snapshot.machines[0]).not.toHaveProperty('sshTargetId', expect.anything())
   })
 
+  it("retires a deleted machine's managed server once, keeping its row", async () => {
+    const retired: string[] = []
+    const { deps, sshTargets } = await setup({
+      list: [inventory([machine()]), inventory([]), inventory([])],
+      delete: fail('not-found')
+    })
+    const service = new MachineService({
+      ...deps,
+      isHostReferenced: () => true,
+      retireEnvironment: (environmentId) => retired.push(environmentId)
+    })
+    vi.mocked(sshTargets.connect).mockResolvedValueOnce({
+      targetId: 't',
+      status: 'connected',
+      error: null,
+      reconnectAttempt: 0,
+      managedServer: { kind: 'managed', environmentId: 'env-machine' }
+    })
+    await service.list(KEY)
+    await service.connect(KEY, 'sbx-1')
+    expect(retired).toEqual([])
+    await service.delete(KEY, 'sbx-1')
+    await service.list(KEY, { force: true })
+    await service.list(KEY, { force: true })
+    expect(retired).toEqual(['env-machine'])
+    expect(service.snapshots()[0]?.machines).toEqual([
+      expect.objectContaining({ state: 'gone', managedEnvironmentId: 'env-machine' })
+    ])
+  })
+
   it('drops a gone row on the next list once no repo or workspace runs on its server', async () => {
     const referenced = new Set(['runtime:env-machine'])
     const { deps, sshTargets } = await setup({
