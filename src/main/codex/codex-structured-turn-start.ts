@@ -13,6 +13,8 @@ import {
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { readCodexTurnId } from './codex-structured-thread-facts'
+import { codexTurnRequestOptions } from './codex-structured-service-tier'
+import type { CodexSession } from './codex-structured-session-state'
 import {
   codexRunningOrOpeningTurn,
   type CodexTurnOpenWaits
@@ -56,7 +58,8 @@ export type CodexTurnHost = {
   threadId: string
   options: Map<string, string>
   appliedTurnOptions?: Readonly<Record<string, string>>
-  reportedOptions?: { model?: string }
+  reportedOptions?: CodexSession['reportedOptions']
+  catalogAccess?: CodexSession['catalogAccess']
   dispatchEchoes: CodexDispatchEchoes
   activeTurnIds?: ReadonlySet<string>
   /** Running turns whose interrupt Codex already answered: aborted, so never steered. */
@@ -168,6 +171,8 @@ export async function startCodexTurn(
     }
   }
   host.appliedTurnOptions = input.turnOptions ?? Object.fromEntries(host.options)
+  // host.options now holds this message's choices; an unoffered tier runs as standard.
+  const requested = codexTurnRequestOptions(host)
   let answer: unknown
   try {
     answer = await host.connection.request(
@@ -176,8 +181,7 @@ export async function startCodexTurn(
         threadId: host.threadId,
         clientUserMessageId: input.clientMessageId,
         input: turnInputFor(input.body),
-        // Codex omits a tier the model does not list.
-        ...(input.turnOptions ?? Object.fromEntries(host.options))
+        ...requested
       },
       { timeoutMs: input.timeoutMs, onReply: input.onReply }
     )
@@ -273,5 +277,20 @@ export async function dispatchCodexTurn(
         ...codexAnsweredTurn(session, input.sessionId, answer.turnId, answer.via),
         ...rejection
       }
-    : { state: 'admitted' }
+    : { state: 'admitted', ranOptions: codexRanOptions(session) }
+}
+
+/** What a turn on this child runs, a steer its running turn's: the request's model and effort over
+ *  the thread's own, and the tier it runs as. */
+function codexRanOptions(session: CodexTurnHost): Record<string, string> {
+  const requested = codexTurnRequestOptions(session)
+  const thread = session.reportedOptions ?? {}
+  const model = requested.model ?? thread.model
+  const effort = requested.effort ?? (model === thread.model ? thread.effort : undefined)
+  const { serviceTier } = requested
+  return {
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(serviceTier ? { serviceTier } : {})
+  }
 }

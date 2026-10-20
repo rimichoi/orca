@@ -11,6 +11,7 @@ import { useStructuredLegacyLaunchStop } from '@/lib/structured-agent-session-le
 import {
   useStructuredAgentSessionHostQueuesCommands,
   useStructuredAgentSessionHostEditsQueuedMessages,
+  useStructuredAgentSessionHostEditsQueuedImages,
   useStructuredAgentSessionHostQueuesMessagesState
 } from '@/runtime/structured-agent-session-host-capability'
 import { structuredAgentSessionStopControl } from './structured-agent-session-stop-control'
@@ -41,6 +42,7 @@ import {
 import { hostStatesTurnScopes } from '../../../../shared/native-chat-turn-membership'
 import { pendingPromptsAllUnanswerableHere } from '../../../../shared/agent-session-approval-subject'
 import { withNativeChatCutTurnNotices } from '../../../../shared/native-chat-cut-turn-notice'
+import { useNativeChatContextClearFloor } from './use-native-chat-context-clear-floor'
 import { useStructuredAgentSessionRewind } from './use-structured-agent-session-rewind'
 import type { NativeChatRewindHost } from './use-native-chat-rewind'
 
@@ -170,10 +172,12 @@ export function useStructuredAgentSession(args: {
     state.epoch
   )
 
+  const contextFloor = contextUsageSupport?.contextFloor ?? threadGoalSupport?.contextFloor
   const railOutline = useStructuredAgentSessionRailOutline({
     sessionId,
     target,
     state,
+    contextFloor,
     enabled: providerVisible
   })
 
@@ -190,7 +194,7 @@ export function useStructuredAgentSession(args: {
     ...args.rewind,
     state,
     support: transportEnabled ? rewindSupport : undefined,
-    contextFloor: contextUsageSupport?.contextFloor ?? threadGoalSupport?.contextFloor,
+    contextFloor,
     // The host also refuses a rewind behind its queued cards, paused ones included.
     blocked: conversationBusy || commandPending.current || queuedMessageIds.length > 0,
     write
@@ -215,10 +219,12 @@ export function useStructuredAgentSession(args: {
     () => pendingSendsOutsideQueuedCards(pending, queuedMessageIds, isWorking),
     [isWorking, pending, queuedMessageIds]
   )
-  // What the transcript reads: the journal plus the one notice a cut turn with no row gets.
+  const contextClear = useNativeChatContextClearFloor(state.epoch, transportState.journalItems)
+  // What the transcript reads: the journal since the latest /clear, plus the one notice a cut turn
+  // with no row gets.
   const transcriptItems = useMemo(
-    () => withNativeChatCutTurnNotices(transportState.journalItems, { agentName }),
-    [agentName, transportState.journalItems]
+    () => withNativeChatCutTurnNotices(contextClear.rows, { agentName }),
+    [agentName, contextClear.rows]
   )
   const messages = useStructuredAgentSessionMessages(
     transcriptItems,
@@ -226,9 +232,10 @@ export function useStructuredAgentSession(args: {
     transportState.submissions
   )
   const editCapable = useStructuredAgentSessionHostEditsQueuedMessages(target)
+  const imagesCapable = useStructuredAgentSessionHostEditsQueuedImages(target)
   const editTransport = useMemo(
-    () => ({ target, sessionId, capable: editCapable, write }),
-    [editCapable, sessionId, target, write]
+    () => ({ target, sessionId, capable: editCapable, imagesCapable, write }),
+    [editCapable, imagesCapable, sessionId, target, write]
   )
   const queuedController = useStructuredAgentSessionQueuedMessages({
     // Its published list, pause and submissions; the rest is named below.
@@ -244,6 +251,8 @@ export function useStructuredAgentSession(args: {
   })
   return {
     epoch: state.epoch,
+    /** Whether a live `/clear` is fading the old transcript out, and how many this view drew. */
+    contextClear,
     /** The transcript has caught up with the host since this pane last started reading. */
     readCurrent: transportEnabled && readCurrent,
     rewind,
@@ -298,10 +307,7 @@ export function useStructuredAgentSession(args: {
       ...legacyLaunchStop,
       host: stopControl,
       transportState,
-      sends: {
-        sending,
-        stopSends: sends.stopSends
-      }
+      sends: { sending, stopSends: sends.stopSends }
     }),
     stopPressed: stopControl.pressed,
     queuedMessages: queuedController,

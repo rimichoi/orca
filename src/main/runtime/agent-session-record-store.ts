@@ -252,12 +252,10 @@ export class AgentSessionRecordStore {
     return this.mutate(args.sessionId, (record) => evictAgentSessionOwner({ ...args, record }))
   }
 
-  async transitionHandoff(
+  transitionHandoff = (
     sessionId: string,
     transition: (record: AgentSessionRecord) => AgentSessionRecord
-  ): Promise<AgentSessionRecord> {
-    return this.mutate(sessionId, transition)
-  }
+  ): Promise<AgentSessionRecord> => this.mutate(sessionId, transition)
 
   /**
    * Adjudicate loaded leases, or only the addressed session. No lease grants a writer until it
@@ -324,6 +322,13 @@ export class AgentSessionRecordStore {
 
   replaceSessionOptions = (args: AgentSessionOptionsReplacement): Promise<AgentSessionRecord> =>
     this.mutate(args.sessionId, (record) => replaceAgentSessionRecordOptions(record, args))
+
+  /** One options revision from `agent-session-record-options`, decided against the record this
+   *  ordered write holds. */
+  reviseSessionOptions = <A extends { sessionId: string }>(
+    revise: (record: AgentSessionRecord, args: A) => AgentSessionRecord,
+    args: A
+  ) => this.mutate(args.sessionId, (record) => revise(record, args))
 
   async retireClaimKey(keyId: string, now: number): Promise<void> {
     await this.transact((draft) => retireAgentSessionClaimKey(draft, keyId, now))
