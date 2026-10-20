@@ -107,8 +107,8 @@ describe('a chat in a project the WSL host now owns', () => {
 
   it('hides only the local row from clients, by host, while the host row stays listed', () => {
     const hidden = runtimeHiddenRepos(store)
-    expect(hidden.has('repo-1', 'local')).toBe(true)
-    expect(hidden.has('repo-1', HOST_ID)).toBe(false)
+    expect(hidden.hasWorktree({ repoId: 'repo-1', hostId: 'local' })).toBe(true)
+    expect(hidden.hasWorktree({ repoId: 'repo-1', hostId: HOST_ID })).toBe(false)
   })
 
   it('persists its revealed tab through the freeze and keeps the slept terminal as it was', async () => {
