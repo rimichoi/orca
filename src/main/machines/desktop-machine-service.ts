@@ -2,7 +2,8 @@ import { BrowserWindow } from 'electron'
 import {
   machineProviderKey,
   type MachineRecord,
-  type MachineTarget
+  type MachineTarget,
+  type MachineWorkAtRisk
 } from '../../shared/machine-inventory'
 import { getSshConnectionStore } from '../ipc/ssh/ssh'
 import {
@@ -20,7 +21,7 @@ import { MachineService, type MachineProviderEntry } from './machine-service'
 import { MachineExpiryWarnings } from './machine-expiry-warnings'
 import { registerMachineService } from './machine-service-registration'
 import { machineExpiryNotification } from './machine-expiry-notification'
-import { readMachineWorkAtRisk, type MachineWorkAtRisk } from './machine-work-at-risk'
+import { readMachineWorkAtRisk } from './machine-work-at-risk'
 import { dispatchDesktopNotification } from '../ipc/notifications'
 import { callRuntimeEnvironment } from '../ipc/runtime-environments/runtime-environment-transport-routing'
 import {

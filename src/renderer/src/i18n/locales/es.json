@@ -20600,7 +20600,9 @@
       "title": "{{machine}} se elimina a las {{time}}",
       "unknownWork": "Orca no pudo comprobar si hay trabajo sin guardar.",
       "noWork": "Todo lo que contiene se elimina con ella. Orca no encontró trabajo sin confirmar ni sin enviar.",
-      "work": "{{work}} se perderán si no los envías antes.",
+      "work": "{{work}} se perderán si no los envías antes."
+    },
+    "workAtRisk": {
       "uncommitted_one": "{{count}} cambio sin confirmar",
       "uncommitted_other": "{{count}} cambios sin confirmar",
       "unpushed_one": "{{count}} commit sin enviar",

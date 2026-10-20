@@ -20612,7 +20612,9 @@
       "title": "{{machine}} sera supprimée à {{time}}",
       "unknownWork": "Orca n’a pas pu vérifier s’il y a du travail non enregistré.",
       "noWork": "Tout ce qu’elle contient sera supprimé avec elle. Orca n’a trouvé aucun travail non validé ou non poussé.",
-      "work": "{{work}} seront perdus si vous ne poussez pas avant.",
+      "work": "{{work}} seront perdus si vous ne poussez pas avant."
+    },
+    "workAtRisk": {
       "uncommitted_one": "{{count}} modification non validée",
       "uncommitted_other": "{{count}} modifications non validées",
       "unpushed_one": "{{count}} commit non poussé",

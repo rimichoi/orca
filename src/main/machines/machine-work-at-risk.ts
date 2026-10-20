@@ -1,8 +1,6 @@
 import { z } from 'zod'
 import type { RuntimeRpcResponse } from '../../shared/runtime-rpc-envelope'
-
-/** Uncommitted changes and unpushed commits on a machine; null when they could not be read. */
-export type MachineWorkAtRisk = { uncommitted: number; unpushed: number }
+import type { MachineWorkAtRisk } from '../../shared/machine-inventory'
 
 type RuntimeCall = (
   method: string,
@@ -37,6 +35,7 @@ function resultOf<T>(response: RuntimeRpcResponse<unknown>, schema: z.ZodType<T>
  * their uncommitted entries and commits ahead of upstream. Any read that fails makes the whole
  * answer null, so a warning never claims "nothing to lose" from partial evidence.
  */
+/** Uncommitted changes and unpushed commits on a machine; null when they could not be read. */
 export async function readMachineWorkAtRisk(call: RuntimeCall): Promise<MachineWorkAtRisk | null> {
   try {
     const listed = resultOf(

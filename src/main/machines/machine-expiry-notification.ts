@@ -1,23 +1,5 @@
-import type { MachineExpiryWarning } from '../../shared/machine-inventory'
+import { formatMachineWorkAtRisk, type MachineExpiryWarning } from '../../shared/machine-inventory'
 import { translateMain } from '../i18n/main-i18n'
-
-function uncommittedPhrase(count: number): string {
-  return count === 1
-    ? translateMain('machines.expiryWarning.uncommitted_one', '{{count}} uncommitted change', {
-        count
-      })
-    : translateMain('machines.expiryWarning.uncommitted_other', '{{count}} uncommitted changes', {
-        count
-      })
-}
-
-function unpushedPhrase(count: number): string {
-  return count === 1
-    ? translateMain('machines.expiryWarning.unpushed_one', '{{count}} unpushed commit', { count })
-    : translateMain('machines.expiryWarning.unpushed_other', '{{count}} unpushed commits', {
-        count
-      })
-}
 
 /** The banner for a machine about to be deleted; unknown work is said, never left out. */
 export function machineExpiryNotification(warning: MachineExpiryWarning): {
@@ -42,11 +24,8 @@ export function machineExpiryNotification(warning: MachineExpiryWarning): {
       )
     }
   }
-  const parts = [
-    ...(work.uncommitted > 0 ? [uncommittedPhrase(work.uncommitted)] : []),
-    ...(work.unpushed > 0 ? [unpushedPhrase(work.unpushed)] : [])
-  ]
-  if (parts.length === 0) {
+  const parts = formatMachineWorkAtRisk(work, translateMain)
+  if (parts === null) {
     return {
       title,
       body: translateMain(
@@ -60,7 +39,7 @@ export function machineExpiryNotification(warning: MachineExpiryWarning): {
     body: translateMain(
       'machines.expiryWarning.work',
       '{{work}} on it will be lost unless you push first.',
-      { work: parts.join(', ') }
+      { work: parts }
     )
   }
 }

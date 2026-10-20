@@ -20612,7 +20612,9 @@
       "title": "{{machine}} は {{time}} に削除されます",
       "unknownWork": "Orca は未保存の作業を確認できませんでした。",
       "noWork": "中身はすべて一緒に削除されます。未コミットや未 push の作業は見つかりませんでした。",
-      "work": "{{work}}は、push しないと失われます。",
+      "work": "{{work}}は、push しないと失われます。"
+    },
+    "workAtRisk": {
       "uncommitted_one": "未コミットの変更 {{count}} 件",
       "uncommitted_other": "未コミットの変更 {{count}} 件",
       "unpushed_one": "未 push のコミット {{count}} 件",

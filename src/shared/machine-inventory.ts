@@ -64,6 +64,12 @@ export function machineExpiryWarningKey(
   return `${machine.providerKey}/${machine.id}@${machine.expiresAt ?? ''}`
 }
 
+/** How long before a temporary machine's expiry Orca warns about it. */
+export const MACHINE_EXPIRY_WARNING_MS = 15 * 60_000
+
+/** Uncommitted changes and unpushed commits on a machine's worktrees. */
+export type MachineWorkAtRisk = { uncommitted: number; unpushed: number }
+
 /** What main tells the renderer when a temporary machine enters its last 15 minutes. */
 export type MachineExpiryWarning = {
   providerKey: MachineProviderKey
@@ -72,7 +78,7 @@ export type MachineExpiryWarning = {
   /** Local epoch ms, already shifted from the provider's clock. */
   expiresAt: number
   /** null: the machine's worktrees could not be read, so unsaved work is unknown. */
-  workAtRisk: { uncommitted: number; unpushed: number } | null
+  workAtRisk: MachineWorkAtRisk | null
 }
 
 /** What clients see for one provider: its declaration plus the cached inventory. */
@@ -113,14 +119,52 @@ export function isStalePendingCreate(pending: MachinePendingCreate, now: number)
   return now - pending.startedAt > MACHINE_CREATE_RECONCILE_WINDOW_MS
 }
 
+/** `expiresAt` as a local epoch, shifted from the provider's clock; null when it never expires. */
+export function machineLocalExpiresAt(
+  machine: Pick<MachineRecord, 'expiresAt'>,
+  clockOffsetMs: number | undefined
+): number | null {
+  return machine.expiresAt ? Date.parse(machine.expiresAt) - (clockOffsetMs ?? 0) : null
+}
+
 /** Milliseconds until `expiresAt` on the provider's clock, or null when the machine never expires. */
 export function machineMsUntilExpiry(
   machine: Pick<MachineRecord, 'expiresAt'>,
   clockOffsetMs: number | undefined,
   localNow: number
 ): number | null {
-  if (!machine.expiresAt) {
-    return null
+  const expiresAt = machineLocalExpiresAt(machine, clockOffsetMs)
+  return expiresAt === null ? null : expiresAt - localNow
+}
+
+/** A translation lookup: the renderer's `translate` or main's `translateMain`. */
+export type MachineCopyTranslate = (
+  key: string,
+  defaultValue: string,
+  values: { count: number }
+) => string
+
+/** "2 uncommitted changes, 1 unpushed commit"; null when there is nothing to lose. */
+export function formatMachineWorkAtRisk(
+  work: MachineWorkAtRisk,
+  t: MachineCopyTranslate
+): string | null {
+  const parts: string[] = []
+  if (work.uncommitted > 0) {
+    const count = work.uncommitted
+    parts.push(
+      count === 1
+        ? t('machines.workAtRisk.uncommitted_one', '{{count}} uncommitted change', { count })
+        : t('machines.workAtRisk.uncommitted_other', '{{count}} uncommitted changes', { count })
+    )
   }
-  return Date.parse(machine.expiresAt) - (localNow + (clockOffsetMs ?? 0))
+  if (work.unpushed > 0) {
+    const count = work.unpushed
+    parts.push(
+      count === 1
+        ? t('machines.workAtRisk.unpushed_one', '{{count}} unpushed commit', { count })
+        : t('machines.workAtRisk.unpushed_other', '{{count}} unpushed commits', { count })
+    )
+  }
+  return parts.length > 0 ? parts.join(', ') : null
 }

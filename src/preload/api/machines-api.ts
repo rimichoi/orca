@@ -6,7 +6,8 @@ import type {
   MachineProviderKey,
   MachineProviderSnapshot,
   MachineRecord,
-  MachineTarget
+  MachineTarget,
+  MachineWorkAtRisk
 } from '../../shared/machine-inventory'
 import type { MachineLifetime } from '../../shared/machine-provider-protocol'
 
@@ -43,9 +44,7 @@ export type MachinesApi = {
    * Reads uncommitted and unpushed work on a machine from its Orca server (5 s per read).
    * `value: null` means it could not be read: say so, never treat it as nothing at risk.
    */
-  workAtRisk: (
-    args: MachineTarget
-  ) => Promise<MachineActionResult<{ uncommitted: number; unpushed: number } | null>>
+  workAtRisk: (args: MachineTarget) => Promise<MachineActionResult<MachineWorkAtRisk | null>>
   /** Expiry warnings main already raised for machines that still exist (for a reloaded window). */
   expiryWarnings: () => Promise<MachineActionResult<MachineExpiryWarning[]>>
   /** Main raised a temporary machine's 15-minute warning (its desktop notification is main's). */

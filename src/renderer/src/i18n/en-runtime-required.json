@@ -3374,7 +3374,8 @@
     }
   },
   "machines": {
-    "expiryWarning": {
+    "expiryWarning": {},
+    "workAtRisk": {
       "uncommitted_one": "{{count}} uncommitted change",
       "uncommitted_other": "{{count}} uncommitted changes",
       "unpushed_one": "{{count}} unpushed commit",

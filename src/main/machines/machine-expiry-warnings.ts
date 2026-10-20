@@ -1,13 +1,13 @@
 import {
+  MACHINE_EXPIRY_WARNING_MS,
   machineExpiryWarningKey,
   machineMsUntilExpiry,
   type MachineExpiryWarning,
   type MachineProviderSnapshot,
-  type MachineRecord
+  type MachineRecord,
+  type MachineWorkAtRisk
 } from '../../shared/machine-inventory'
-import type { MachineWorkAtRisk } from './machine-work-at-risk'
 
-export const MACHINE_EXPIRY_WARNING_MS = 15 * 60_000
 // setTimeout overflows past ~24.8 days; a far expiry is re-armed by the next reschedule.
 const MAX_TIMER_MS = 24 * 60 * 60_000
 
