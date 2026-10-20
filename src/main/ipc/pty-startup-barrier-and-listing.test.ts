@@ -210,12 +210,14 @@ describe('registerPtyHandlers', () => {
     setLocalPtyProvider({
       spawn: vi.fn(),
       write: vi.fn(),
+      writeWithSettlement: vi.fn(),
       resize: vi.fn(),
       shutdown: vi.fn(),
       sendSignal: vi.fn(),
       getCwd: vi.fn(),
       getInitialCwd: vi.fn(),
       clearBuffer: vi.fn(),
+      resetInputModes: vi.fn(),
       acknowledgeDataEvent: vi.fn(),
       hasChildProcesses: vi.fn(),
       getForegroundProcess: vi.fn(),
@@ -230,7 +232,7 @@ describe('registerPtyHandlers', () => {
       probePtyLiveness,
       getDefaultShell: vi.fn(),
       getProfiles: vi.fn()
-    } as never)
+    })
     registerPtyHandlers(mainWindow as never)
 
     await expect(handlers.get('pty:hasPty')!(null, { id: 'live-pty' })).resolves.toBe(true)
