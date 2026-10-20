@@ -8,6 +8,7 @@ type MockState = {
   tabsByWorktree: Record<string, unknown[]>
   runtimePaneTitlesByTabId: Record<string, unknown>
   ptyIdsByTabId: Record<string, unknown>
+  applyEnvironmentMachine: ReturnType<typeof vi.fn>
 }
 
 const mocks = vi.hoisted(() => {
@@ -16,17 +17,21 @@ const mocks = vi.hoisted(() => {
     worktreesByRepo: {},
     tabsByWorktree: {},
     runtimePaneTitlesByTabId: {},
-    ptyIdsByTabId: {}
+    ptyIdsByTabId: {},
+    applyEnvironmentMachine: vi.fn()
   }
+  const rpc = vi.fn()
   const working = vi.fn((): Record<string, { agents: unknown[] }> => ({}))
-  return { toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn() }, state, working }
+  return { toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn() }, state, working, rpc }
 })
 vi.mock('sonner', () => ({ toast: mocks.toast }))
 vi.mock('@/store', () => ({ useAppStore: { getState: () => mocks.state } }))
 vi.mock('@/lib/agent-status', () => ({ getWorkingAgentsPerWorktree: mocks.working }))
+vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: mocks.rpc }))
 
 import {
   buildMachineSshCommand,
+  getMachineMenuActionLabel,
   getMachineMenuActions,
   runMachineMenuAction
 } from './machine-actions'
@@ -102,6 +107,19 @@ describe('getMachineMenuActions', () => {
   it('keeps archive, delete and the SSH command off machines a paired server owns', () => {
     expect(getMachineMenuActions(match({ access: ACCESS }, 'env-1'))).toEqual(['sleep'])
   })
+
+  it('lets a machine in error be deleted, and names Refresh as Retry there', () => {
+    const errored = match({ state: 'error' })
+    expect(getMachineMenuActions(errored)).toEqual(['refresh', 'delete'])
+    expect(getMachineMenuActionLabel('refresh', errored)).toBe('Retry')
+  })
+
+  it('offers nothing verb-backed when the provider declared no capabilities', () => {
+    const bare = match({ state: 'sleeping' })
+    expect(
+      getMachineMenuActions({ ...bare, snapshot: { ...bare.snapshot, capabilities: undefined } })
+    ).toEqual(['refresh'])
+  })
 })
 
 describe('runMachineMenuAction', () => {
@@ -122,6 +140,26 @@ describe('runMachineMenuAction', () => {
     expect(mocks.toast.warning).toHaveBeenCalledWith(
       '2 agents are working on box',
       expect.objectContaining({ action: expect.objectContaining({ label: 'Sleep anyway' }) })
+    )
+  })
+
+  it('counts agents on a paired server’s machine before sleeping it', async () => {
+    mocks.state.repos = [{ id: 'r' }]
+    mocks.state.worktreesByRepo = { r: [{ id: 'wt', repoId: 'r', hostId: 'nested:env-1/t-1' }] }
+    mocks.working.mockReturnValueOnce({ wt: { agents: [{}] } })
+    await runMachineMenuAction('sleep', match({ sshTargetId: 't-1' }, 'env-1'))
+    expect(mocks.rpc).not.toHaveBeenCalled()
+    expect(mocks.toast.warning).toHaveBeenCalledWith('1 agent is working on box', expect.anything())
+  })
+
+  it('takes the record a paired server returns after Sleep', async () => {
+    mocks.state.worktreesByRepo = {}
+    const slept = { ...match({}).machine, state: 'sleeping' }
+    mocks.rpc.mockResolvedValue({ ok: true, value: slept })
+    await runMachineMenuAction('sleep', match({}, 'env-1'))
+    expect(mocks.state.applyEnvironmentMachine).toHaveBeenCalledWith(
+      'env-1',
+      expect.objectContaining({ id: 'm', state: 'sleeping' })
     )
   })
 

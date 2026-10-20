@@ -18552,7 +18552,9 @@
           "gone": "{{name}} a été supprimée",
           "goneBody": "Ce terminal ne peut pas reprendre. Retirez le worktree depuis son menu quand vous avez fini.",
           "unreachable": "Impossible de joindre {{name}}",
-          "unreachableBody": "Elle est peut-être encore en démarrage. Si cela persiste, mettez-la en veille puis réveillez-la depuis son menu."
+          "unreachableBody": "Elle est peut-être encore en démarrage. Si cela persiste, mettez-la en veille puis réveillez-la depuis son menu.",
+          "reopenBody": "Ce terminal reprend quand la machine se réveille.",
+          "stopping": "{{name}} se met en veille"
         }
       }
     },

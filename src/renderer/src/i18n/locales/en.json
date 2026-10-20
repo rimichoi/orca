@@ -18709,7 +18709,9 @@
           "gone": "{{name}} was deleted",
           "goneBody": "This terminal can’t resume. Remove the worktree from its menu when you’re done.",
           "unreachable": "Can’t reach {{name}}",
-          "unreachableBody": "It may still be starting. If this stays, sleep and wake it from its menu."
+          "unreachableBody": "It may still be starting. If this stays, sleep and wake it from its menu.",
+          "reopenBody": "This terminal resumes when the machine wakes.",
+          "stopping": "{{name}} is going to sleep"
         }
       }
     },

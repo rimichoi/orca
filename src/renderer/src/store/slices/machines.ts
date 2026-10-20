@@ -72,6 +72,30 @@ function changesNothing(
   )
 }
 
+/** Warnings whose machine is still listed and not gone; the same object when none dropped. */
+function liveExpiryWarnings(
+  warnings: Readonly<Record<string, MachineExpiryWarning>>,
+  providers: Readonly<Record<string, MachineProviderSnapshot>>
+): Readonly<Record<string, MachineExpiryWarning>> {
+  const kept = Object.entries(warnings).filter(([, warning]) =>
+    providers[warning.providerKey]?.machines.some(
+      (machine) => machine.id === warning.machineId && machine.state !== 'gone'
+    )
+  )
+  return kept.length === Object.keys(warnings).length ? warnings : Object.fromEntries(kept)
+}
+
+/** New providers, with expiry warnings for machines no longer there cleared alongside. */
+function withProviders(
+  state: AppState,
+  machineProviders: Readonly<Record<string, MachineProviderSnapshot>>
+): Pick<AppState, 'machineProviders' | 'machineExpiryWarnings'> {
+  return {
+    machineProviders,
+    machineExpiryWarnings: liveExpiryWarnings(state.machineExpiryWarnings, machineProviders)
+  }
+}
+
 export const createMachinesSlice: StateCreator<AppState, [], [], MachinesSlice> = (set) => ({
   machineProviders: {},
   machineEnvironmentProviders: {},
@@ -98,7 +122,7 @@ export const createMachinesSlice: StateCreator<AppState, [], [], MachinesSlice> 
     set((state) =>
       isNewer(snapshot, state.machineProviders[snapshot.providerKey]) &&
       !changesNothing(snapshot, state.machineProviders[snapshot.providerKey])
-        ? { machineProviders: { ...state.machineProviders, [snapshot.providerKey]: snapshot } }
+        ? withProviders(state, { ...state.machineProviders, [snapshot.providerKey]: snapshot })
         : {}
     ),
   replaceMachineSnapshots: (snapshots) =>
@@ -111,7 +135,7 @@ export const createMachinesSlice: StateCreator<AppState, [], [], MachinesSlice> 
         next[snapshot.providerKey] = keep ? held : snapshot
         changed ||= !keep
       }
-      return changed ? { machineProviders: next } : {}
+      return changed ? withProviders(state, next) : {}
     }),
   machineExpiryWarnings: {},
   applyMachineExpiryWarning: (warning) =>

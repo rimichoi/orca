@@ -4,15 +4,16 @@ import type { MachineAccess } from '../../../../shared/machine-provider-protocol
 import { quotePosixShellUnlessPlain } from '../../../../shared/shell-argument-quoting'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { translate } from '@/i18n/i18n'
+import { getMachineActions, type MachineAction } from '../../../../shared/machine-display'
 import { getMachineDisplayState } from './machine-display-state'
-import { machineHostIds, type MachineMatch } from './machine-host-match'
+import { type MachineMatch, worktreesOnMachine } from './machine-host-match'
 import { describeMachineActionFailure, describeMachineFailure } from './machine-copy'
-import { getWorktreeExecutionHostId } from '../../../../shared/execution-host'
 import { getWorkingAgentsPerWorktree } from '@/lib/agent-status'
 import { useAppStore } from '@/store'
+import { applyEnvironmentMachineResult, loadEnvironmentMachines } from '@/store/machines'
 import { wakeMachine } from './machine-wake'
 
-export type MachineMenuAction = 'wake' | 'sleep' | 'archive' | 'copy-ssh' | 'refresh' | 'delete'
+export type MachineMenuAction = MachineAction
 
 /** `ssh` for a running machine's SSH access, or null when there is nothing to dial. */
 export function buildMachineSshCommand(access: MachineAccess | undefined): string | null {
@@ -30,44 +31,15 @@ export function buildMachineSshCommand(access: MachineAccess | undefined): strin
   return args.map(quotePosixShellUnlessPlain).join(' ')
 }
 
-/**
- * Only actions that can work right now. A paired server's machines take Wake and Sleep alone,
- * since create, archive and delete stay desktop-local; an unreachable machine offers what needs no
- * provider round trip beyond a retry.
- */
+/** Only actions that can work right now; the rules are shared with every other surface. */
 export function getMachineMenuActions(match: MachineMatch): MachineMenuAction[] {
-  const verbs = new Set(match.snapshot.capabilities?.verbs ?? [])
-  const local = match.environmentId === null
-  const state = getMachineDisplayState(match.machine.state)
-  const actions: MachineMenuAction[] = []
-  if ((state === 'sleeping' || state === 'archived') && verbs.has('wake')) {
-    actions.push('wake')
-  }
-  if (state === 'running' && verbs.has('sleep')) {
-    actions.push('sleep')
-  }
-  if (local && (state === 'running' || state === 'sleeping') && verbs.has('archive')) {
-    actions.push('archive')
-  }
-  // Why: a paired server's access names its own jump host, which this computer may not reach.
-  if (local && buildMachineSshCommand(match.machine.access)) {
-    actions.push('copy-ssh')
-  }
-  if (local) {
-    actions.push('refresh')
-  }
-  // Why: mid-create, mid-wake or mid-sleep the provider is still acting on it; delete once it settles.
-  if (
-    local &&
-    state !== 'gone' &&
-    state !== 'unreachable' &&
-    state !== 'starting' &&
-    state !== 'stopping' &&
-    verbs.has('delete')
-  ) {
-    actions.push('delete')
-  }
-  return actions
+  return getMachineActions({
+    state: match.machine.state,
+    verbs: match.snapshot.capabilities?.verbs ?? [],
+    local: match.environmentId === null,
+    // Why: a paired server's access names its own jump host, which this computer may not reach.
+    sshCommandAvailable: buildMachineSshCommand(match.machine.access) !== null
+  })
 }
 
 export function getMachineMenuActionLabel(action: MachineMenuAction, match: MachineMatch): string {
@@ -81,7 +53,7 @@ export function getMachineMenuActionLabel(action: MachineMenuAction, match: Mach
     case 'copy-ssh':
       return translate('auto.lib.machines.machineActions.copySsh', 'Copy SSH command')
     case 'refresh':
-      return getMachineDisplayState(match.machine.state) === 'unreachable'
+      return ['unreachable', 'error'].includes(getMachineDisplayState(match.machine.state))
         ? translate('auto.lib.machines.machineActions.retry', 'Retry')
         : translate('auto.lib.machines.machineActions.refresh', 'Refresh')
     case 'delete':
@@ -100,11 +72,13 @@ async function runMutation(
   }
   if (match.environmentId !== null) {
     // Why: archive is desktop-local, so the menu never offers it for a paired server.
-    return callRuntimeRpc<MachineActionResult<MachineRecord>>(
+    const result = await callRuntimeRpc<MachineActionResult<MachineRecord>>(
       { kind: 'environment', environmentId: match.environmentId },
       'machines.sleep',
       target
     )
+    applyEnvironmentMachineResult(match.environmentId, result)
+    return result
   }
   return window.api.machines[verb](target)
 }
@@ -123,6 +97,10 @@ export async function runMachineMenuAction(
     return
   }
   if (action === 'refresh') {
+    if (match.environmentId !== null) {
+      await loadEnvironmentMachines(match.environmentId, { refresh: true })
+      return
+    }
     const listed = await window.api.machines
       .list({ providerKey: match.snapshot.providerKey, force: true })
       .catch(() => null)
@@ -173,21 +151,14 @@ export async function runMachineMenuAction(
   await runMutationWithFeedback(action, match)
 }
 
-/** Agents working in terminals of worktrees on this machine. */
+/** Agents working in terminals of worktrees on this machine, wherever its provider runs. */
 export function countWorkingAgentsOnMachine(match: MachineMatch): number {
   const state = useAppStore.getState()
-  const hosts = new Set<string>(machineHostIds(match.machine))
-  const repoById = new Map(state.repos.map((repo) => [repo.id, repo]))
-  const onMachine = new Set(
-    Object.values(state.worktreesByRepo)
-      .flat()
-      .filter((worktree) =>
-        hosts.has(getWorktreeExecutionHostId(worktree, repoById.get(worktree.repoId)))
-      )
-      .map((worktree) => worktree.id)
-  )
   const working = getWorkingAgentsPerWorktree(state)
-  return [...onMachine].reduce((total, id) => total + (working[id]?.agents.length ?? 0), 0)
+  return worktreesOnMachine(match, state).reduce(
+    (total, worktree) => total + (working[worktree.id]?.agents.length ?? 0),
+    0
+  )
 }
 
 async function runMutationWithFeedback(

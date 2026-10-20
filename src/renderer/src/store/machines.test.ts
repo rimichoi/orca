@@ -14,7 +14,11 @@ vi.mock('@/store', async () => {
 
 import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
 import { useAppStore } from '@/store'
-import { ensureMachinesLoaded, loadEnvironmentMachines } from './machines'
+import {
+  applyEnvironmentMachineResult,
+  ensureMachinesLoaded,
+  loadEnvironmentMachines
+} from './machines'
 
 function snapshot(listedAt: number): MachineProviderSnapshot {
   return {
@@ -24,6 +28,16 @@ function snapshot(listedAt: number): MachineProviderSnapshot {
     pendingCreates: [],
     listedAt
   }
+}
+
+const ROW = {
+  id: 'm',
+  name: 'box',
+  providerKey: 'plugin:p/omarchy' as const,
+  lifetime: 'persistent' as const,
+  state: 'running' as const,
+  createdAt: '2026-10-01T00:00:00.000Z',
+  lastSeenAt: 0
 }
 
 const WARNING_KEY = 'plugin:p/omarchy\0m'
@@ -127,8 +141,10 @@ describe('ensureMachinesLoaded', () => {
     await vi.waitFor(() =>
       expect(Object.keys(useAppStore.getState().machineProviders)).toEqual(['plugin:q/docker'])
     )
-    // Main's expiry warnings: those raised before a reload, then live ones, latest per machine.
-    expect(useAppStore.getState().machineExpiryWarnings[WARNING_KEY]?.expiresAt).toBe(1)
+    // Main's expiry warnings are read after a reload and follow live pushes, latest per machine.
+    expect(window.api.machines.expiryWarnings).toHaveBeenCalled()
+    pushChange({ ...snapshot(6), machines: [ROW] })
+    pushWarning(warning(1))
     pushWarning(warning(2))
     expect(useAppStore.getState().machineExpiryWarnings[WARNING_KEY]?.expiresAt).toBe(2)
     vi.unstubAllGlobals()
@@ -143,5 +159,57 @@ describe('machines slice', () => {
     expect(useAppStore.getState().machineProviders['plugin:p/omarchy']).toBe(held)
     useAppStore.getState().applyMachineSnapshot({ ...snapshot(3), name: 'Renamed' })
     expect(useAppStore.getState().machineProviders['plugin:p/omarchy']?.name).toBe('Renamed')
+  })
+})
+
+describe('paired-server machines', () => {
+  it('asks the server to re-list when refreshing, and ignores a reply it can’t read', async () => {
+    useAppStore.getState().setMachineEnvironmentSnapshots('env-1', [snapshot(1)])
+    mocks.callRuntimeRpc.mockResolvedValue({ ok: true, value: { not: 'a list' } })
+
+    await loadEnvironmentMachines('env-1', { refresh: true })
+
+    expect(mocks.callRuntimeRpc).toHaveBeenCalledWith(
+      { kind: 'environment', environmentId: 'env-1' },
+      'machines.list',
+      { refresh: true },
+      { suppressFeatureInteraction: true }
+    )
+    expect(useAppStore.getState().machineEnvironmentProviders['env-1']).toEqual([snapshot(1)])
+  })
+
+  it('applies the record an action returned, and re-reads the server when there is none', async () => {
+    useAppStore
+      .getState()
+      .setMachineEnvironmentSnapshots('env-1', [{ ...snapshot(1), machines: [ROW] }])
+
+    applyEnvironmentMachineResult('env-1', { ok: true, value: { ...ROW, state: 'sleeping' } })
+    expect(
+      useAppStore.getState().machineEnvironmentProviders['env-1']?.[0]?.machines[0]?.state
+    ).toBe('sleeping')
+
+    mocks.callRuntimeRpc.mockResolvedValue({ ok: true, value: [] })
+    applyEnvironmentMachineResult('env-1', { ok: false, code: 'timeout', message: 'slow' })
+    await vi.waitFor(() =>
+      expect(mocks.callRuntimeRpc).toHaveBeenCalledWith(
+        expect.anything(),
+        'machines.list',
+        { refresh: true },
+        expect.anything()
+      )
+    )
+  })
+})
+
+describe('expiry warnings', () => {
+  it('clears a warning once its machine is gone or no longer listed', () => {
+    useAppStore.getState().applyMachineSnapshot({ ...snapshot(1), machines: [ROW] })
+    useAppStore.getState().applyMachineExpiryWarning(warning(10))
+    expect(useAppStore.getState().machineExpiryWarnings[WARNING_KEY]).toBeDefined()
+
+    useAppStore
+      .getState()
+      .applyMachineSnapshot({ ...snapshot(2), machines: [{ ...ROW, state: 'gone' }] })
+    expect(useAppStore.getState().machineExpiryWarnings[WARNING_KEY]).toBeUndefined()
   })
 })

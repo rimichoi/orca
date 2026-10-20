@@ -2926,6 +2926,12 @@
           "uncommitted_other": "{{count}} uncommitted",
           "unpushed_one": "1 unpushed",
           "unpushed_other": "{{count}} unpushed"
+        },
+        "machineExpiryWarning": {
+          "uncommitted": "{{count}} uncommitted changes",
+          "uncommittedOne": "1 uncommitted change",
+          "unpushed": "{{count}} unpushed commits",
+          "unpushedOne": "1 unpushed commit"
         }
       },
       "terminal": {

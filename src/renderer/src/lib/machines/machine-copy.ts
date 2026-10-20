@@ -147,6 +147,13 @@ export function getStoppedMachineTitle(match: MachineMatch): string {
       name
     })
   }
+  if (match.machine.state === 'stopping') {
+    return translate(
+      'auto.components.machines.StoppedMachineBanner.stopping',
+      '{{name}} is going to sleep',
+      { name }
+    )
+  }
   return match.machine.state === 'archived'
     ? translate('auto.components.machines.StoppedMachineBanner.archived', '{{name}} is archived', {
         name

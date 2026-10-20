@@ -5,7 +5,8 @@ import { translate } from '@/i18n/i18n'
 import { openWslHostsExperimentalSetting } from '../sidebar/use-wsl-hosts-enabled'
 import { getWslHostsTurnedOffLabel, getWslHostsTurnOnLabel } from '../sidebar/wsl-host-row-status'
 import type { MachineMatch } from '@/lib/machines/machine-host-match'
-import { runMachineMenuAction } from '@/lib/machines/machine-actions'
+import { getMachineMenuActions } from '@/lib/machines/machine-actions'
+import { wakeStoppedMachine } from '@/lib/machines/machine-wake-on-open'
 import { getStoppedMachineTitle } from '@/lib/machines/machine-copy'
 
 type FileExplorerTreeStatusProps = {
@@ -59,11 +60,11 @@ export function FileExplorerTreeStatus({
         data-file-explorer-stopped-machine={stoppedMachine.machine.state}
       >
         <span>{getStoppedMachineTitle(stoppedMachine)}</span>
-        {stoppedMachine.machine.state === 'gone' ? null : (
-          <Button size="xs" onClick={() => void runMachineMenuAction('wake', stoppedMachine)}>
+        {getMachineMenuActions(stoppedMachine).includes('wake') ? (
+          <Button size="xs" onClick={() => void wakeStoppedMachine(stoppedMachine)}>
             {translate('auto.components.machines.StoppedMachineBanner.wake', 'Wake machine')}
           </Button>
-        )}
+        ) : null}
       </div>
     )
   }

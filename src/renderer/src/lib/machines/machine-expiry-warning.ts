@@ -1,13 +1,11 @@
 import { translate } from '@/i18n/i18n'
-import { machineLocalExpiresAt } from '../../../../shared/machine-inventory'
-import type { MachineExpiryWarning } from '../../../../shared/machine-inventory'
+import {
+  formatMachineWorkAtRisk,
+  MACHINE_EXPIRY_WARNING_MS,
+  machineLocalExpiresAt,
+  type MachineExpiryWarning
+} from '../../../../shared/machine-inventory'
 import type { MachineMatch } from './machine-host-match'
-
-/** Work a machine's deletion would lose: uncommitted files and commits not on a remote. */
-type MachineWorkAtRisk = { uncommitted: number; unpushed: number }
-
-/** How long before a Temporary machine is deleted that Orca warns about unsaved work on it. */
-export const MACHINE_EXPIRY_WARNING_MS = 15 * 60_000
 
 const clockTime = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
 
@@ -20,34 +18,6 @@ export function getWarnableExpiry(match: MachineMatch, now: number): number | nu
   return expiry !== null && expiry > now && expiry - now <= MACHINE_EXPIRY_WARNING_MS
     ? expiry
     : null
-}
-
-/** "3 uncommitted changes, 2 unpushed commits": what a delete would lose, empty parts left out. */
-export function formatWorkAtRisk(work: MachineWorkAtRisk): string {
-  const parts: string[] = []
-  if (work.uncommitted === 1) {
-    parts.push(
-      translate('auto.lib.machines.machineExpiryWarning.uncommittedOne', '1 uncommitted change')
-    )
-  } else if (work.uncommitted > 1) {
-    parts.push(
-      translate(
-        'auto.lib.machines.machineExpiryWarning.uncommitted',
-        '{{count}} uncommitted changes',
-        { count: work.uncommitted }
-      )
-    )
-  }
-  if (work.unpushed === 1) {
-    parts.push(translate('auto.lib.machines.machineExpiryWarning.unpushedOne', '1 unpushed commit'))
-  } else if (work.unpushed > 1) {
-    parts.push(
-      translate('auto.lib.machines.machineExpiryWarning.unpushed', '{{count}} unpushed commits', {
-        count: work.unpushed
-      })
-    )
-  }
-  return parts.join(', ')
 }
 
 /**
@@ -64,7 +34,8 @@ export function getMachineExpiryWarning(
     return null
   }
   const work = warning.workAtRisk
-  if (work !== null && work.uncommitted === 0 && work.unpushed === 0) {
+  const atRisk = work === null ? null : formatMachineWorkAtRisk(work, translate)
+  if (work !== null && atRisk === null) {
     return null
   }
   return translate(
@@ -78,7 +49,7 @@ export function getMachineExpiryWarning(
               'auto.lib.machines.machineExpiryWarning.unknown',
               'Couldn’t check unsaved work'
             )
-          : formatWorkAtRisk(work)
+          : atRisk
     }
   )
 }

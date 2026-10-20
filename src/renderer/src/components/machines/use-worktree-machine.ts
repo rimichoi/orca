@@ -40,13 +40,15 @@ export function useWorktreeStoppedMachine(worktreeId: string | null): MachineMat
 export function useTerminalMachineBanner(
   worktreeId: string,
   terminalError: string | null
-): { match: MachineMatch; unreachable: boolean } | null {
+): { match: MachineMatch; worktreeId: string; unreachable: boolean } | null {
   const machine = useWorktreeMachine(worktreeId)
   if (!machine || !terminalError) {
     return null
   }
   if (isStoppedMachine(machine)) {
-    return { match: machine, unreachable: false }
+    return { match: machine, worktreeId, unreachable: false }
   }
-  return isMachineConnectionError(terminalError) ? { match: machine, unreachable: true } : null
+  return isMachineConnectionError(terminalError)
+    ? { match: machine, worktreeId, unreachable: true }
+    : null
 }

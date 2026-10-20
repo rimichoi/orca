@@ -18448,7 +18448,9 @@
           "gone": "{{name}} 已删除",
           "goneBody": "此终端无法恢复。完成后请从菜单中移除该工作树。",
           "unreachable": "无法连接到 {{name}}",
-          "unreachableBody": "它可能仍在启动。如果一直如此，请从菜单中将其休眠后再唤醒。"
+          "unreachableBody": "它可能仍在启动。如果一直如此，请从菜单中将其休眠后再唤醒。",
+          "reopenBody": "机器唤醒后，此终端将恢复。",
+          "stopping": "{{name}} 正在进入休眠"
         }
       }
     },

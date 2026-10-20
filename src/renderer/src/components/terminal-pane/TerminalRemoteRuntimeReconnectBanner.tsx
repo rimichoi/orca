@@ -43,7 +43,8 @@ export function TerminalRemoteRuntimeReconnectBanner({
   pairingRefused = false,
   wakingMachineName = null,
   wakeFailure = null,
-  stoppedMachine = null
+  stoppedMachine = null,
+  machineWorktreeId
 }: {
   phase: VisibleRecoveryPhase
   onReconnect: () => void
@@ -57,12 +58,14 @@ export function TerminalRemoteRuntimeReconnectBanner({
   wakeFailure?: string | null
   /** The pane's machine sleeps or is archived, so nothing reconnects until it wakes. */
   stoppedMachine?: MachineMatch | null
+  /** The pane's worktree, so Wake holds its terminals like opening it does. */
+  machineWorktreeId?: string
 }): React.JSX.Element {
   if (wslHostUnavailable) {
     return <WslHostUnavailableBanner reason={wslHostUnavailable} />
   }
   if (stoppedMachine && wakingMachineName === null) {
-    return <StoppedMachineBanner match={stoppedMachine} />
+    return <StoppedMachineBanner match={stoppedMachine} worktreeId={machineWorktreeId} />
   }
   const retrying = phase !== 'disconnected' && !pairingRefused
   const waking = retrying && wakingMachineName !== null

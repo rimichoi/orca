@@ -213,6 +213,7 @@ export function TerminalPaneRecoveryPortals({
             pairingRefused={pairingRefusedEnvironmentId !== null}
             wakingMachineName={wakingMachineName}
             stoppedMachine={stoppedMachine}
+            machineWorktreeId={controller.worktreeId}
           />,
           pane.container,
           `remote-runtime-reconnect-${pane.id}`

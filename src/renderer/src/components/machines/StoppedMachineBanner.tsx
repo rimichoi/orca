@@ -3,23 +3,28 @@ import { Archive, Moon, Trash2, Unplug } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { translate } from '@/i18n/i18n'
 import type { MachineMatch } from '@/lib/machines/machine-host-match'
-import { runMachineMenuAction } from '@/lib/machines/machine-actions'
+import { getMachineMenuActions } from '@/lib/machines/machine-actions'
+import { wakeStoppedMachine } from '@/lib/machines/machine-wake-on-open'
 import { getStoppedMachineTitle } from '@/lib/machines/machine-copy'
 
 /**
  * A terminal whose machine sleeps, is archived or is gone: nothing will reconnect on its own, so
  * the pane says why and offers Wake where waking can help, instead of a reconnect that can't.
- * `unreachable` covers a running machine whose server the transport couldn't reach.
+ * `unreachable` covers a running machine whose server the transport couldn't reach. Wake is the
+ * same wake opening the worktree runs, so the terminal holds its attach and names the outcome.
  */
 export function StoppedMachineBanner({
   match,
+  worktreeId,
   unreachable = false
 }: {
   match: MachineMatch
+  worktreeId?: string
   unreachable?: boolean
 }): React.JSX.Element {
   const archived = match.machine.state === 'archived'
   const gone = match.machine.state === 'gone'
+  const canWake = getMachineMenuActions(match).includes('wake')
   if (unreachable) {
     return (
       <MachineBannerFrame
@@ -56,17 +61,22 @@ export function StoppedMachineBanner({
               'auto.components.machines.StoppedMachineBanner.goneBody',
               'This terminal can’t resume. Remove the worktree from its menu when you’re done.'
             )
-          : translate(
-              'auto.components.machines.StoppedMachineBanner.body',
-              'Wake it to resume this terminal.'
-            )
+          : canWake
+            ? translate(
+                'auto.components.machines.StoppedMachineBanner.body',
+                'Wake it to resume this terminal.'
+              )
+            : translate(
+                'auto.components.machines.StoppedMachineBanner.reopenBody',
+                'This terminal resumes when the machine wakes.'
+              )
       }
       action={
-        gone ? null : (
-          <Button size="sm" onClick={() => void runMachineMenuAction('wake', match)}>
+        canWake ? (
+          <Button size="sm" onClick={() => void wakeStoppedMachine(match, worktreeId)}>
             {translate('auto.components.machines.StoppedMachineBanner.wake', 'Wake machine')}
           </Button>
-        )
+        ) : null
       }
     />
   )

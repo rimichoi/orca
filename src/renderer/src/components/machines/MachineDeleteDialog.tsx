@@ -17,7 +17,7 @@ import type { MachineTarget } from '../../../../shared/machine-inventory'
 import type { GitUpstreamStatus } from '../../../../shared/git-status-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import { getWorktreeHostIdentity } from '../../../../shared/worktree/host-qualified-identity'
-import { machineHostIds, type MachineMatch } from '@/lib/machines/machine-host-match'
+import { type MachineMatch, worktreesOnMachine } from '@/lib/machines/machine-host-match'
 import { getMachineMenuActions, runMachineMenuAction } from '@/lib/machines/machine-actions'
 import { deleteMachineWithWorktrees } from '@/lib/machines/machine-delete'
 import {
@@ -26,7 +26,6 @@ import {
   type MachineWorkRead
 } from '@/lib/machines/machine-delete-work'
 import { useDeleteWorktreeStatusHydration } from '@/components/sidebar/use-delete-worktree-status-hydration'
-import { getWorktreeExecutionHostId } from '../../../../shared/execution-host'
 
 function confirmLabel(worktreeCount: number): string {
   if (worktreeCount === 0) {
@@ -48,17 +47,10 @@ function confirmLabel(worktreeCount: number): string {
 function useBoundWorktrees(match: MachineMatch): Worktree[] {
   const worktreesByRepo = useAppStore((state) => state.worktreesByRepo)
   const repos = useAppStore((state) => state.repos)
-  // Why: keyed on the host ids, so a re-listed inventory doesn't rebuild the list.
-  const hostKey = machineHostIds(match.machine).join('\n')
-  return useMemo(() => {
-    const hosts = new Set(hostKey.split('\n'))
-    const repoById = new Map(repos.map((repo) => [repo.id, repo]))
-    return Object.values(worktreesByRepo)
-      .flat()
-      .filter((worktree) =>
-        hosts.has(getWorktreeExecutionHostId(worktree, repoById.get(worktree.repoId)))
-      )
-  }, [hostKey, repos, worktreesByRepo])
+  return useMemo(
+    () => worktreesOnMachine(match, { worktreesByRepo, repos }),
+    [match, repos, worktreesByRepo]
+  )
 }
 
 /** Unpushed-commit status per worktree, read once while the dialog is open on a running machine. */

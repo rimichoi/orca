@@ -118,3 +118,36 @@ export function getArchivedMachineHostIds(
     )
   )
 }
+
+/** Whether a worktree on this host runs on the machine; a paired server's SSH ids are its own. */
+export function hostIsOnMachine(hostKey: string | null, match: MachineMatch): boolean {
+  if (!hostKey) {
+    return false
+  }
+  if (match.environmentId === null) {
+    return machineHostIds(match.machine).some((id) => id === hostKey)
+  }
+  const authority = parseHostAuthorityKey(hostKey)
+  return (
+    authority?.endpoint.kind === 'environment' &&
+    authority.endpoint.environmentId === match.environmentId &&
+    match.machine.sshTargetId !== undefined &&
+    authority.at === `ssh:${match.machine.sshTargetId}`
+  )
+}
+
+/** Every worktree on the machine: this app's own, or those a paired server runs there. */
+export function worktreesOnMachine(
+  match: MachineMatch,
+  state: {
+    worktreesByRepo: Readonly<Record<string, readonly Worktree[]>>
+    repos: readonly Pick<Repo, 'id' | 'connectionId' | 'executionHostId'>[]
+  }
+): Worktree[] {
+  const repoById = new Map(state.repos.map((repo) => [repo.id, repo]))
+  return Object.values(state.worktreesByRepo)
+    .flat()
+    .filter((worktree) =>
+      hostIsOnMachine(machineHostKeyForWorktree(worktree, repoById.get(worktree.repoId)), match)
+    )
+}

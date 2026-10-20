@@ -246,40 +246,35 @@ export function getMachineSources(): MachineSources {
   return selectMachineSources(state.machineProviders, state.machineEnvironmentProviders)
 }
 
-const matchCache = new Map<string, { signature: string; match: MachineMatch }>()
+type MatchCache = { sources: MachineSources; byHost: Map<string, MachineMatch | null> }
+let matchCache: MatchCache | null = null
 
-/** The same match object while a host's machine is unchanged, so its readers skip re-rendering. */
-function stableMatchForHost(
-  hostKey: string | null | undefined,
-  sources: MachineSources
-): MachineMatch | null {
+/**
+ * A host's match, computed once per inventory: the cache belongs to one sources object, so a
+ * machine change drops it whole and any other store update reuses every row's answer.
+ */
+function matchForHost(hostKey: string, sources: MachineSources): MachineMatch | null {
+  if (matchCache?.sources !== sources) {
+    matchCache = { sources, byHost: new Map() }
+  }
+  const held = matchCache.byHost.get(hostKey)
+  if (held !== undefined) {
+    return held
+  }
   const match = findMachineForHost(hostKey, sources)
-  if (!hostKey || !match) {
-    return null
-  }
-  const signature = JSON.stringify([
-    match.environmentId,
-    match.snapshot.providerKey,
-    match.snapshot.name,
-    match.snapshot.clockOffsetMs,
-    match.snapshot.capabilities,
-    match.machine
-  ])
-  const held = matchCache.get(hostKey)
-  if (held?.signature === signature) {
-    return held.match
-  }
-  matchCache.set(hostKey, { signature, match })
+  matchCache.byHost.set(hostKey, match)
   return match
 }
 
 /** The machine a host runs on, or null for every other host; re-renders only when it changes. */
 export function useMachineForHost(hostKey: string | null | undefined): MachineMatch | null {
   return useAppStore((state) =>
-    stableMatchForHost(
-      hostKey,
-      selectMachineSources(state.machineProviders, state.machineEnvironmentProviders)
-    )
+    hostKey
+      ? matchForHost(
+          hostKey,
+          selectMachineSources(state.machineProviders, state.machineEnvironmentProviders)
+        )
+      : null
   )
 }
 
