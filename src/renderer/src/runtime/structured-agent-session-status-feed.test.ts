@@ -66,7 +66,8 @@ describe('structured agent session status feed', () => {
 
   it('never subscribes, and never retries, against a host without the status feed', async () => {
     mocks.supportsCapability.mockResolvedValue(false)
-    getStructuredAgentSessionStatusFeed(REMOTE).activate()
+    const feed = getStructuredAgentSessionStatusFeed(REMOTE)
+    feed.activate()
 
     await vi.advanceTimersByTimeAsync(0)
     expect(mocks.supportsCapability).toHaveBeenCalledWith(
@@ -75,6 +76,7 @@ describe('structured agent session status feed', () => {
     )
     expect(mocks.subscribeStatus).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(0)
+    expect(feed.getSessionSleepState('session-1')).toBeNull()
 
     await vi.advanceTimersByTimeAsync(60_000)
     expect(mocks.subscribeStatus).not.toHaveBeenCalled()

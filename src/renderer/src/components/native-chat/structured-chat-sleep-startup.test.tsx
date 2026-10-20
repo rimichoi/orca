@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, render, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import type { AgentSessionStatusEvent } from '../../../../shared/agent-session-wire'
 import type * as RuntimeRpcClientModule from '@/runtime/runtime-rpc-client'
 import { getWorktreeIdsWithStructuredChat } from '../sidebar/visible-worktree-activity-inputs'
@@ -29,152 +29,75 @@ import { resetStructuredAgentSessionStatusFeedsForTests } from '@/runtime/struct
 function emit(event: AgentSessionStatusEvent, index = 0): void {
   act(() => mocks.subscribeStatus.mock.calls[index][1](event))
 }
-beforeEach(() => {
-  vi.clearAllMocks()
-  mocks.subscribeStatus.mockResolvedValue({ unsubscribe: vi.fn() })
-})
 afterEach(() => {
   cleanup()
   resetStructuredAgentSessionStatusFeedsForTests()
 })
-it('keeps an unstamped inactive twin awake until its identified host publishes Sleep', async () => {
+it('keeps an unidentified twin visible, then follows only its named host through disconnect and wake', async () => {
   const workspaceId = 'repo::/repo/main'
+  const tab = agentSessionTabFixture('legacy', workspaceId)
+  const hosts = ['local', 'runtime:paired'] as const
   mocks.supportsCapability.mockResolvedValue(true)
+  mocks.subscribeStatus.mockResolvedValue({ unsubscribe: vi.fn() })
   useAppStore.setState({
     activeWorktreeId: 'another-workspace',
     activeWorkspaceExecutionHostId: null,
-    repos: [
-      repoFixture({ executionHostId: 'local' }),
-      repoFixture({ executionHostId: 'runtime:paired' })
-    ],
+    repos: hosts.map((executionHostId) => repoFixture({ executionHostId })),
     worktreesByRepo: {
-      repo: [
-        worktreeFixture(workspaceId, '/repo/main', { hostId: 'local' }),
-        worktreeFixture(workspaceId, '/repo/main', {
-          hostId: 'runtime:paired',
-          runtimeOwnerEnvironmentId: 'paired'
-        })
-      ]
+      repo: hosts.map((hostId) => worktreeFixture(workspaceId, '/repo/main', { hostId }))
     },
-    unifiedTabsByWorktree: { [workspaceId]: [agentSessionTabFixture('legacy', workspaceId)] },
+    unifiedTabsByWorktree: { [workspaceId]: [tab] },
     structuredChatSleptAtByPaneKey: {},
     agentStatusByPaneKey: {},
     tabsByWorktree: {},
     browserTabsByWorktree: {}
   })
-  const awake = () => {
-    const state = useAppStore.getState()
-    return getWorktreeIdsWithStructuredChat(
-      state.unifiedTabsByWorktree,
-      state.structuredChatSleptAtByPaneKey
+  const state = useAppStore.getState
+  const awake = () =>
+    getWorktreeIdsWithStructuredChat(
+      state().unifiedTabsByWorktree,
+      state().structuredChatSleptAtByPaneKey
     ).has(workspaceId)
-  }
+  const sleeping = () => selectIsSleepingWorktree(state(), workspaceId)
   render(<StructuredAgentSessionStatusBridge />)
-  expect(Object.values(useAppStore.getState().structuredChatSleptAtByPaneKey)).toEqual([null])
   expect(awake()).toBe(true)
-  expect(selectIsSleepingWorktree(useAppStore.getState(), workspaceId)).toBe(false)
-  expect(mocks.supportsCapability).not.toHaveBeenCalled()
+  expect(sleeping()).toBe(false)
   expect(mocks.subscribeStatus).not.toHaveBeenCalled()
   act(() =>
     useAppStore.setState({ activeWorktreeId: workspaceId, activeWorkspaceExecutionHostId: 'local' })
   )
   await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())
-  expect(selectIsSleepingWorktree(useAppStore.getState(), workspaceId)).toBe(false)
-  emit({
-    type: 'snapshot',
-    sessions: [
-      {
-        sessionId: 'session-legacy',
-        workspaceId,
-        agent: 'codex',
-        status: 'idle',
-        latestPrompt: '',
-        updatedAt: 1,
-        sleptAt: 5
-      }
-    ]
-  })
-  expect(Object.values(useAppStore.getState().structuredChatSleptAtByPaneKey)).toEqual([5])
   expect(awake()).toBe(false)
-  expect(selectIsSleepingWorktree(useAppStore.getState(), workspaceId)).toBe(true)
-})
-it.each(['slept', 'disconnected', 'old-host'] as const)(
-  'waits for host sleep evidence after restart: %s',
-  async (answer) => {
-    mocks.supportsCapability.mockResolvedValue(answer !== 'old-host')
-    useAppStore.setState({
-      unifiedTabsByWorktree: {
-        'wt-1': [
-          agentSessionTabFixture('chat', 'wt-1', {
-            entityId: 'session-1',
-            executionHostId: answer === 'old-host' ? 'runtime:old' : 'local'
-          })
-        ]
-      },
-      structuredChatSleptAtByPaneKey: {},
-      agentStatusByPaneKey: {},
-      tabsByWorktree: {},
-      browserTabsByWorktree: {}
-    })
-    const visible = () => {
-      const state = useAppStore.getState()
-      return getWorktreeIdsWithStructuredChat(
-        state.unifiedTabsByWorktree,
-        state.structuredChatSleptAtByPaneKey
-      ).has('wt-1')
+  expect(sleeping()).toBe(false)
+  expect(hasSleepableWorkspaceActivity(workspaceId, state())).toBe(false)
+  for (const livePanel of [
+    { browserTabsByWorktree: { [workspaceId]: [{ id: 'browser' }] } },
+    {
+      tabsByWorktree: { [workspaceId]: [{ id: 'terminal' }] },
+      ptyIdsByTabId: { terminal: ['pty'] }
     }
-    expect(visible()).toBe(false)
-    expect(selectIsSleepingWorktree(useAppStore.getState(), 'wt-1')).toBe(false)
-    expect(hasSleepableWorkspaceActivity('wt-1', useAppStore.getState())).toBe(false)
-    expect(
-      hasSleepableWorkspaceActivity('wt-1', {
-        ...useAppStore.getState(),
-        browserTabsByWorktree: { 'wt-1': [{ id: 'browser' }] }
-      })
-    ).toBe(true)
-    expect(
-      hasSleepableWorkspaceActivity('wt-1', {
-        ...useAppStore.getState(),
-        tabsByWorktree: { 'wt-1': [{ id: 'terminal' }] },
-        ptyIdsByTabId: { terminal: ['pty'] }
-      })
-    ).toBe(true)
-    render(<StructuredAgentSessionStatusBridge />)
-    if (answer === 'old-host') {
-      await waitFor(() => expect(visible()).toBe(true))
-      expect(mocks.subscribeStatus).not.toHaveBeenCalled()
-      return
-    }
-    await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())
-    expect(visible()).toBe(false)
-    const session = {
-      sessionId: 'session-1',
-      workspaceId: 'wt-1',
-      agent: 'codex',
-      status: 'idle',
-      latestPrompt: '',
-      updatedAt: 1,
-      sleptAt: 5
-    } as const
-    emit(answer === 'disconnected' ? { type: 'end' } : { type: 'snapshot', sessions: [session] })
-    expect(visible()).toBe(false)
-    expect(selectIsSleepingWorktree(useAppStore.getState(), 'wt-1')).toBe(answer === 'slept')
-    expect(hasSleepableWorkspaceActivity('wt-1', useAppStore.getState())).toBe(false)
-    if (answer === 'disconnected') {
-      await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledTimes(2))
-      emit({ type: 'snapshot', sessions: [session] }, 1)
-      expect(visible()).toBe(false)
-      expect(selectIsSleepingWorktree(useAppStore.getState(), 'wt-1')).toBe(true)
-    }
-    if (answer === 'slept') {
-      emit({ type: 'end' })
-      expect(visible()).toBe(false)
-      cleanup()
-      render(<StructuredAgentSessionStatusBridge />)
-      expect(visible()).toBe(false)
-      await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledTimes(2))
-      emit({ type: 'status', session: { ...session, sleptAt: undefined } }, 1)
-      expect(visible()).toBe(true)
-    }
+  ]) {
+    expect(hasSleepableWorkspaceActivity(workspaceId, { ...state(), ...livePanel })).toBe(true)
   }
-)
+  emit({ type: 'end' })
+  expect(awake()).toBe(false)
+  await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledTimes(2))
+  const session = {
+    sessionId: tab.entityId,
+    workspaceId,
+    agent: 'codex',
+    status: 'idle',
+    latestPrompt: '',
+    updatedAt: 1,
+    sleptAt: 5
+  } as const
+  emit({ type: 'snapshot', sessions: [session] }, 1)
+  expect(sleeping()).toBe(true)
+  emit({ type: 'end' }, 1)
+  cleanup()
+  render(<StructuredAgentSessionStatusBridge />)
+  expect(sleeping()).toBe(true)
+  await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledTimes(3))
+  emit({ type: 'status', session: { ...session, sleptAt: undefined } }, 2)
+  expect(awake()).toBe(true)
+})

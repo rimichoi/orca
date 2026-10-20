@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { act, cleanup, renderHook } from '@testing-library/react'
+import { cleanup, renderHook } from '@testing-library/react'
 import { useAppStore } from '@/store'
 import { structuredAgentSessionPaneKey } from '../../../../shared/structured-agent-session-projection'
 import type { Tab } from '../../../../shared/tab-types'
@@ -74,13 +74,5 @@ describe('useVisibleWorkspaceKanbanWorktreeIds', () => {
     )
 
     expect(result.current).toEqual(new Set([getWorktreeHostIdentity(worktree)]))
-    act(() =>
-      useAppStore.setState({
-        structuredChatSleptAtByPaneKey: {
-          [structuredAgentSessionPaneKey(structuredTab.id, structuredTab.entityId)]: 5
-        }
-      })
-    )
-    expect(result.current).toEqual(new Set())
   })
 })

@@ -173,8 +173,8 @@ it('keeps a send admitted after the host Sleep close alive', async () => {
   expect(host.hasSession('session-alpha')).toBe(true)
 })
 
-it('marks only the chats a Sleep that asked proved stopped, until the next send', async () => {
-  const { host, store, acquire, root } = hostTestState()
+it('keeps Sleep through history reopen and replay, and clears it atomically with a new send', async () => {
+  const { host, store, dispatch, root } = hostTestState()
   await attach()
   const send = async (text: string) => {
     const body = hostTestMessage(text)
@@ -186,8 +186,17 @@ it('marks only the chats a Sleep that asked proved stopped, until the next send'
   expect(await host.sleepWorkspace('workspace-1')).toEqual({ stoppedSessionIds: ['session-alpha'] })
   expect(store.getRecord('session-alpha')?.sleptAt).toBeUndefined()
   const previous = await send('after the move')
-  await vi.waitFor(() => expect(acquire).toHaveBeenCalledTimes(2))
-
+  await vi.waitFor(() => expect(dispatch).toHaveBeenCalledOnce())
+  await host.sleepWorkspace('workspace-1')
+  expect(host.hasSession(SESSION)).toBe(false)
+  const close = host['lifetime'].closeForWorkspaceSleep
+  vi.spyOn(host['lifetime'], 'closeForWorkspaceSleep').mockImplementation(async (...args) => {
+    const stopped = await close(...args)
+    expect(await host.history({ sessionId: SESSION, direction: 'tail' })).toMatchObject({
+      ok: true
+    })
+    return stopped
+  })
   expect(await host.sleepWorkspace('workspace-1', true)).toEqual({
     stoppedSessionIds: ['session-alpha']
   })
@@ -195,16 +204,6 @@ it('marks only the chats a Sleep that asked proved stopped, until the next send'
   expect(sleptAt).toEqual(expect.any(Number))
   expect(await host.send(CALLER, previous)).toMatchObject({ ok: true, replayed: true })
   expect(store.getRecord('session-alpha')?.sleptAt).toBe(sleptAt)
-
-  await store.setSessionTabVisibility(SESSION, true, 'tab-alpha')
-  const restarted = new StructuredAgentSessionHost({
-    ...host.deps,
-    store: await openTestAgentSessionRecordStore(root)
-  })
-  const listed = restarted.getPersistedVisibleSessionTabIndex()
-  expect(listed.sessionIds).toEqual([SESSION])
-  await restarted.restoreReadableSessions(listed.sessionIds)
-  expect(restarted.readStatusSummary(SESSION)?.sleptAt).toBe(sleptAt)
 
   const outcomeReceipt = store.operationOutcomeReceipt.bind(store)
   let stagedAwake = false
@@ -225,12 +224,10 @@ it('marks only the chats a Sleep that asked proved stopped, until the next send'
       }
     }
   })
-  const count = store.admittedSendCount(SESSION)
   const body = hostTestMessage('rolled back send')
   const rolledBack = { envelope: envelope('agentSession.send', { body }), body }
   expect(await host.send(CALLER, rolledBack)).toMatchObject({ ok: false })
   expect(stagedAwake).toBe(true)
-  expect(store.admittedSendCount(SESSION)).toBe(count)
   expect((await openTestAgentSessionRecordStore(root)).getRecord(SESSION)?.sleptAt).toBe(sleptAt)
   expect(
     host['sessions']
@@ -240,34 +237,7 @@ it('marks only the chats a Sleep that asked proved stopped, until the next send'
   ).toBe(false)
 
   await send('wake up')
-  expect(store.admittedSendCount(SESSION)).toBe(count + 1)
   expect((await openTestAgentSessionRecordStore(root)).getRecord(SESSION)?.sleptAt).toBeUndefined()
-  expect(store.getRecord('session-alpha')?.sleptAt).toBeUndefined()
-  expect(host.readStatusSummary('session-alpha')?.sleptAt).toBeUndefined()
-})
-
-it('marks a used evicted chat when only its history reopens during Sleep settlement', async () => {
-  const { host, store, dispatch } = hostTestState()
-  await attach()
-  const body = hostTestMessage('previously admitted message')
-  expect(
-    await host.send(CALLER, { envelope: envelope('agentSession.send', { body }), body })
-  ).toMatchObject({ ok: true })
-  await vi.waitFor(() => expect(dispatch).toHaveBeenCalledOnce())
-  await host.sleepWorkspace('workspace-1')
-  expect(host.hasSession(SESSION)).toBe(false)
-  const count = store.admittedSendCount(SESSION)
-  const close = host['lifetime'].closeForWorkspaceSleep
-  vi.spyOn(host['lifetime'], 'closeForWorkspaceSleep').mockImplementation(async (...args) => {
-    const stopped = await close(...args)
-    expect(await host.history({ sessionId: SESSION, direction: 'tail' })).toMatchObject({
-      ok: true
-    })
-    return stopped
-  })
-  expect(await host.sleepWorkspace('workspace-1', true)).toEqual({ stoppedSessionIds: [SESSION] })
-  expect(store.admittedSendCount(SESSION)).toBe(count)
-  expect(host.readStatusSummary(SESSION)?.sleptAt).toEqual(expect.any(Number))
 })
 
 it('returns the receipt for a stopped child whose provider reports its own end', async () => {

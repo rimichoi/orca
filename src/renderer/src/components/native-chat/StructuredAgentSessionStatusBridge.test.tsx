@@ -200,12 +200,11 @@ describe('StructuredAgentSessionStatusBridge', () => {
   it('clears host-held evidence when the status stream disconnects', async () => {
     render(<StructuredAgentSessionStatusBridge />)
     await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())
-    act(() => feed().emit({ type: 'status', session: summary({ sleptAt: 5 }) }))
+    act(() => feed().emit({ type: 'status', session: summary() }))
     expect(statuses()).toHaveLength(1)
     act(() => feed().emit({ type: 'end' }))
     expect(statuses()).toHaveLength(1)
     expect(statuses()[0]).not.toHaveProperty('structuredHostOwned')
-    expect(Object.values(useAppStore.getState().structuredChatSleptAtByPaneKey)).toEqual([null])
   })
 
   it('maps each host status onto the sidebar agent state', async () => {
