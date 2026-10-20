@@ -7,7 +7,10 @@
  * catalog state to decide, and stays fenced while that is unknown. Source rows are never rewritten
  * before commit, so lifting the record is the whole reset; a host's leftover staging expires.
  */
-import type { OrcadMigrationCatalogState } from '../../../shared/orcad-migration/orcad-migration-manifest'
+import type {
+  OrcadMigrationCatalogReferenceAbortResult,
+  OrcadMigrationCatalogState
+} from '../../../shared/orcad-migration/orcad-migration-manifest'
 import {
   WSL_MOVE_CUTOVER_PHASES,
   type WslMoveCutover,
@@ -18,6 +21,7 @@ import {
   confirmDurableCommit,
   type OrcadMigrationDestinationCatalog
 } from '../../ssh/orcad-migration-cutover-coordinator'
+import { orcadMigrationRequestFits } from '../../ssh/orcad-migration-manifest-export'
 import { wslHostsGateOpen } from '../../wsl/wsl-host-gate'
 import {
   listWslMoveCutovers,
@@ -73,16 +77,21 @@ export async function resetWslMoveToZero(
       ? { outcome: 'unverifiable', reason: 'destination_unreachable' }
       : release('commit-never-requested')
   }
+  const destination = context.destination
+  const byReference = () =>
+    resetByReference({ ...context, destination }, cutover, commitMayExist, release)
+  if (!orcadMigrationRequestFits({ manifest: cutover.manifest })) {
+    return byReference()
+  }
   let state: OrcadMigrationCatalogState
   try {
-    state = await context.destination.readState(cutover.manifest)
+    state = await destination.readState(cutover.manifest)
     if (state.state !== 'committed') {
-      state = await abortWithRecovery(context.destination, cutover.manifest)
+      state = await abortWithRecovery(destination, cutover.manifest)
     }
-  } catch (error) {
-    return commitMayExist
-      ? { outcome: 'unverifiable', reason: describe(error) }
-      : release('commit-never-requested')
+  } catch {
+    // A host with a lower request limit refuses even a manifest this build sizes as fitting.
+    return commitMayExist ? byReference() : release('commit-never-requested')
   }
   if (state.state === 'absent') {
     return release(commitMayExist ? 'catalog-absent' : 'commit-never-requested')
@@ -95,6 +104,34 @@ export async function resetWslMoveToZero(
     return { outcome: 'unverifiable', reason: 'committed_without_commit_request' }
   }
   return { outcome: 'committed', cutover: await recordCommit(context, cutover) }
+}
+
+/**
+ * A manifest too large for any request cannot be read or aborted inline, so the host is asked by
+ * its identity alone; without this a reset could never prove the host empty and would stay stuck.
+ */
+async function resetByReference(
+  context: WslMoveResetContext & { destination: OrcadMigrationDestinationCatalog },
+  cutover: WslMoveCutover,
+  commitMayExist: boolean,
+  release: (evidence: 'commit-never-requested' | 'catalog-absent') => WslMoveResetResult
+): Promise<WslMoveResetResult> {
+  let aborted: OrcadMigrationCatalogReferenceAbortResult
+  try {
+    aborted = await context.destination.abortByReference(cutover.manifest)
+  } catch (error) {
+    return commitMayExist
+      ? { outcome: 'unverifiable', reason: describe(error) }
+      : release('commit-never-requested')
+  }
+  if (aborted.state === 'absent') {
+    return release(commitMayExist ? 'catalog-absent' : 'commit-never-requested')
+  }
+  if (!commitMayExist) {
+    return { outcome: 'unverifiable', reason: 'committed_without_commit_request' }
+  }
+  // commit() cannot carry this manifest to confirm, so the host's receipt is the evidence, as for SSH.
+  return { outcome: 'committed', cutover: recordCommitted(context, cutover) }
 }
 
 /** Only commit()'s acknowledgement, which flushes first, may move the journal to committed. */
@@ -115,6 +152,10 @@ async function recordCommit(
   ) {
     throw new Error('wsl_move_destination_state_mismatch')
   }
+  return recordCommitted(context, cutover)
+}
+
+function recordCommitted(context: WslMoveResetContext, cutover: WslMoveCutover): WslMoveCutover {
   const committed: WslMoveCutover = {
     ...cutover,
     phase: 'destination-committed',
