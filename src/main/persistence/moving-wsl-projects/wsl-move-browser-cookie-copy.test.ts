@@ -9,6 +9,7 @@ import {
   WSL_MOVE_BROWSER_COOKIES_STORE_ID
 } from '../../../shared/wsl-move/wsl-move-browser-cookie-copy'
 import { WSL_HOSTS_INTERNAL_GATE_ENV } from '../../../shared/wsl-host-internal-gate'
+import { parseWslMoveCutover } from '../../../shared/wsl-move/wsl-move-cutover'
 import { wslMoveCutoverFixture as cutover } from '../__fixtures__/wsl-mover/wsl-move-cutover-fixture'
 import { seedWslMoveCutover } from '../__fixtures__/wsl-mover/wsl-move-journal-seeding'
 import { deriveBrowserRoutePartitionStorageScope } from '../../browser/browser-route-identity'
@@ -331,6 +332,15 @@ describe('WSL move browser-cookies store', () => {
 
     expect(copyCookies).not.toHaveBeenCalled()
     expect(record()?.rewrittenStores).toEqual([])
+  })
+
+  it('still reads a journal whose outcome a newer build wrote', () => {
+    const parsed = parseWslMoveCutover({
+      ...cutover('move-1', 'destination-committed'),
+      browserCookieCopy: { outcome: 'fresh-partition', reason: 'a-reason-from-the-future' }
+    })
+    expect(parsed.migrationId).toBe('move-1')
+    expect(parsed.browserCookieCopy).toBeUndefined()
   })
 
   it('previews the reason a move would start the host fresh', () => {

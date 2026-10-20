@@ -42,8 +42,9 @@ const WslMoveCutoverSchema = z.object({
   provenExitedSessionIds: z.array(z.string().min(1).max(1_024)).max(10_000),
   // Desktop stores already rewritten after commit, so a crash redoes only the rest.
   rewrittenStores: z.array(z.string().min(1).max(128)).max(256),
-  // What the move did with the desktop's browser logins, so the result can say why.
-  browserCookieCopy: WslMoveBrowserCookieCopySchema.optional(),
+  // What the move did with the desktop's browser logins. Lenient: a newer build's reason must not
+  // make the whole journal unreadable here.
+  browserCookieCopy: WslMoveBrowserCookieCopySchema.optional().catch(undefined),
   supersedesMigrationId: z.string().min(1).max(128).optional(),
   manifest: z.unknown()
 })

@@ -16,6 +16,9 @@ import {
   productionWslMoveBrowserCookieCopyDependencies,
   registerWslMoveBrowserCookieStore
 } from '../persistence/moving-wsl-projects/wsl-move-browser-cookie-store'
+import { runAfterFirstWindowShown } from './first-window-deferral'
+
+const WSL_MOVE_BROWSER_COOKIES_FALLBACK_MS = 30_000
 import { createProfileStateStoreForStartup } from '../persistence/profile-state/profile-state-startup-authority'
 import { initializeBrowserClientHostId } from '../browser/browser-client-host-id'
 import { scheduleSecretProtectionGapReport } from '../host/deferred-secret-protection-report'
@@ -292,8 +295,12 @@ export async function initializeReadyFoundation(): Promise<void> {
       return currentStore.getSshTargets().map((target) => target.id)
     }
   })
-  // The startup pass ran before browser sessions existed, so its `browser-cookies` store paused.
-  void runGatedWslMoveDesktopRewritePass({ userDataPath: getAppEnvironment().getPath('userData') })
+  // The startup pass ran before browser sessions and any window existed, so `browser-cookies` paused.
+  runAfterFirstWindowShown(() => {
+    void runGatedWslMoveDesktopRewritePass({
+      userDataPath: getAppEnvironment().getPath('userData')
+    })
+  }, WSL_MOVE_BROWSER_COOKIES_FALLBACK_MS)
   try {
     // Why: awaited here so the first guest navigation cannot race the installer's fire-and-forget write.
     await applyBrowserSessionProxies(browserSessionRegistry.listProfiles(), store.getSettings())

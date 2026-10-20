@@ -52,6 +52,8 @@ export function emptyWslMoveBrowserCookieCopyCounts(): WslMoveBrowserCookieCopyC
   }
 }
 
+export const WSL_MOVE_BROWSER_COOKIE_COPY_MAX_PROFILES = 256
+
 export const WslMoveBrowserCookieCopySchema = z.discriminatedUnion('outcome', [
   z.object({
     outcome: z.literal('copied'),
@@ -65,7 +67,7 @@ export const WslMoveBrowserCookieCopySchema = z.discriminatedUnion('outcome', [
           counts: WslMoveBrowserCookieCopyCountsSchema
         })
       )
-      .max(256)
+      .max(WSL_MOVE_BROWSER_COOKIE_COPY_MAX_PROFILES)
   }),
   z.object({
     outcome: z.literal('fresh-partition'),

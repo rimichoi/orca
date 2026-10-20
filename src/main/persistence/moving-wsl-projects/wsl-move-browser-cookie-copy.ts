@@ -7,6 +7,7 @@
 import type { KnownRuntimeEnvironment } from '../../../shared/runtime-environments'
 import {
   emptyWslMoveBrowserCookieCopyCounts,
+  WSL_MOVE_BROWSER_COOKIE_COPY_MAX_PROFILES,
   WSL_MOVE_BROWSER_COOKIES_STORE_ID,
   type WslMoveBrowserCookieCopy,
   type WslMoveBrowserCookieCopyCounts,
@@ -22,7 +23,10 @@ import type { WslMoveDesktopRewriteContext } from './wsl-move-desktop-rewrite-st
 
 export type WslMoveBrowserCookieCopyDependencies = {
   userDataPath: string
-  /** False until a partition may be opened without skipping a pending cookie import. */
+  /**
+   * False until a partition may be opened (after the pending cookie import replay) and an app
+   * window exists, so destroying the copy's hidden windows never closes the last one.
+   */
   sessionsReady: () => boolean
   orcaProfileId: () => string | null
   listEnvironments: () => readonly KnownRuntimeEnvironment[]
@@ -68,7 +72,7 @@ export async function runWslMoveBrowserCookieCopy(
   context: Pick<WslMoveDesktopRewriteContext, 'cutover'>
 ): Promise<string[]> {
   if (!dependencies.sessionsReady()) {
-    // No ledger entry: the pass after browser sessions start retries it.
+    // No ledger entry: the pass after the first window shows retries it.
     throw new Error('wsl_move_browser_sessions_not_ready')
   }
   const orcaProfileId = dependencies.orcaProfileId()
@@ -97,7 +101,7 @@ export async function runWslMoveBrowserCookieCopy(
   const profiles = dependencies.listBrowserProfiles()
   let destinations: string[]
   try {
-    // Every binding before any copy: a conflict leaves no profile half-moved.
+    // Every binding before any copy, so a conflict copies nothing; bindings match what a page makes.
     destinations = profiles.map((profile) =>
       dependencies.bindHostPartition(storage.storage, profile.id)
     )
@@ -116,7 +120,7 @@ export async function runWslMoveBrowserCookieCopy(
   const results: Extract<WslMoveBrowserCookieCopy, { outcome: 'copied' }>['profiles'] = []
   for (const [index, profile] of profiles.entries()) {
     const destinationPartition = destinations[index]
-    if (!destinationPartition || destinationPartition === profile.partition) {
+    if (!destinationPartition) {
       continue
     }
     // Why once per partition: a second copy would revive logins the user signed out of there.
@@ -140,7 +144,8 @@ export async function runWslMoveBrowserCookieCopy(
   }
   recordOutcome(dependencies.userDataPath, cutover.migrationId, {
     outcome: 'copied',
-    profiles: results
+    // Within the journal's bound, so a huge profile list never blocks the ledger entry.
+    profiles: results.slice(0, WSL_MOVE_BROWSER_COOKIE_COPY_MAX_PROFILES)
   })
   return written
 }

@@ -1,4 +1,5 @@
 /** Registers the `browser-cookies` rewrite store against the app's real browser sessions. */
+import { BrowserWindow } from 'electron'
 import { listEnvironments } from '../../../shared/runtime-environment-store'
 import { WSL_MOVE_BROWSER_COOKIES_STORE_ID } from '../../../shared/wsl-move/wsl-move-browser-cookie-copy'
 import {
@@ -23,7 +24,10 @@ export function productionWslMoveBrowserCookieCopyDependencies(
 ): WslMoveBrowserCookieCopyDependencies {
   return {
     userDataPath,
-    sessionsReady: browserSessionsInitialized,
+    // Why a window: win32 quits on window-all-closed, which the copy's hidden windows would trigger.
+    sessionsReady: () =>
+      browserSessionsInitialized() &&
+      BrowserWindow.getAllWindows().some((window) => !window.isDestroyed()),
     orcaProfileId: activeBrowserRoutePartitionOrcaProfileId,
     listEnvironments: () => listEnvironments(userDataPath),
     listBrowserProfiles: () => browserSessionRegistry.listProfiles(),
@@ -35,8 +39,8 @@ export function productionWslMoveBrowserCookieCopyDependencies(
 }
 
 /**
- * Register last among main stores: until browser sessions start it fails, which pauses the stores
- * after it in that pass too. The pass started after browser session startup finishes it.
+ * Register last among main stores: until browser sessions and a window exist it fails, which pauses
+ * the stores after it in that pass too. The pass started once the first window shows finishes it.
  */
 export function registerWslMoveBrowserCookieStore(
   dependencies: WslMoveBrowserCookieCopyDependencies
