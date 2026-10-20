@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Repo } from '../../../shared/repo-types'
-import { getGitHubWorkItemRepo } from './github-work-item-repo-row'
+import { getWorkItemRepo } from './work-item-repo-row'
 
 const localRow: Repo = {
   id: 'twin',
@@ -12,26 +12,24 @@ const localRow: Repo = {
 const sshRow: Repo = { ...localRow, path: '/remote/twin', connectionId: 'builder' }
 const runtimeRow: Repo = { ...localRow, executionHostId: 'runtime:env-1' }
 
-describe('getGitHubWorkItemRepo', () => {
+describe('getWorkItemRepo (GitHub and GitLab items)', () => {
   it('picks the twin on the stamped host', () => {
-    expect(
-      getGitHubWorkItemRepo([sshRow, localRow], { repoId: 'twin', repoHostId: 'ssh:builder' })
-    ).toBe(sshRow)
+    expect(getWorkItemRepo([sshRow, localRow], { repoId: 'twin', repoHostId: 'ssh:builder' })).toBe(
+      sshRow
+    )
   })
 
   it('refuses a twin whose stamped host has no row', () => {
     expect(
-      getGitHubWorkItemRepo([sshRow, localRow], { repoId: 'twin', repoHostId: 'runtime:gone' })
+      getWorkItemRepo([sshRow, localRow], { repoId: 'twin', repoHostId: 'runtime:gone' })
     ).toBeUndefined()
   })
 
   it('keeps a lone row even when the fetch stamped the source host', () => {
-    expect(getGitHubWorkItemRepo([runtimeRow], { repoId: 'twin', repoHostId: 'local' })).toBe(
-      runtimeRow
-    )
+    expect(getWorkItemRepo([runtimeRow], { repoId: 'twin', repoHostId: 'local' })).toBe(runtimeRow)
   })
 
   it('keeps the by-id row for an unstamped item', () => {
-    expect(getGitHubWorkItemRepo([sshRow, localRow], { repoId: 'twin' })).toBe(localRow)
+    expect(getWorkItemRepo([sshRow, localRow], { repoId: 'twin' })).toBe(localRow)
   })
 })

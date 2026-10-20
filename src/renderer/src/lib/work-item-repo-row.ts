@@ -1,15 +1,18 @@
-import { getRepoExecutionHostId } from '../../../shared/execution-host'
-import type { GitHubWorkItem } from '../../../shared/github/work-item-types'
+import { getRepoExecutionHostId, type ExecutionHostId } from '../../../shared/execution-host'
 import type { Repo } from '../../../shared/repo-types'
+
+/** A fetched GitHub or GitLab item's link back to the repo row that returned it. */
+export type WorkItemRepoRef = {
+  repoId: string
+  /** Stamped at fetch with the returning row's host: a twin id names a row on two hosts. */
+  repoHostId?: ExecutionHostId
+}
 
 /**
  * The repo row that returned a work item. A stamped item resolves on its own host, so a twin id
  * never lends it the other host's row; an unstamped one keeps the by-id row a repo map gives.
  */
-export function getGitHubWorkItemRepo(
-  repos: readonly Repo[],
-  item: Pick<GitHubWorkItem, 'repoId' | 'repoHostId'>
-): Repo | undefined {
+export function getWorkItemRepo(repos: readonly Repo[], item: WorkItemRepoRef): Repo | undefined {
   let byId: Repo | undefined
   let rowCount = 0
   for (const repo of repos) {
