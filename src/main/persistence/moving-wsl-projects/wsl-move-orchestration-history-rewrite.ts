@@ -14,8 +14,19 @@ import { wslMoveRewriteScope, type WslMoveRewriteScope } from './wsl-move-rewrit
 
 export const WSL_MOVE_ORCHESTRATION_HISTORY_STORE_ID = 'orchestration-history'
 
-// The recoverable worker states; the move's gate refuses them, so a row still in one is left alone.
-const LIVE_WORKER_STATES_SQL = `('starting', 'ready', 'start_unknown', 'stopping', 'stop_unknown')`
+/** The recoverable worker states. The move's dispatch gate must refuse this same set. */
+export const WSL_MOVE_LIVE_WORKER_STATES = [
+  'starting',
+  'ready',
+  'start_unknown',
+  'stopping',
+  'stop_unknown'
+] as const
+
+const LIVE_WORKER_STATES_SQL = `(${WSL_MOVE_LIVE_WORKER_STATES.map((state) => `'${state}'`).join(', ')})`
+
+// The lock wait blocks the main thread (synchronous SQLite), so keep it short; a busy pass retries.
+const BUSY_TIMEOUT_MS = 2_000
 
 type Rewrite = { key: string; from: string; to: string }
 
@@ -34,11 +45,17 @@ function hasColumns(db: Database, table: string, columns: readonly string[]): bo
   return columns.every((column) => names.has(column))
 }
 
-function hostWorktreeId(scope: WslMoveRewriteScope, worktreeId: string): string {
-  return scope.inScope(worktreeId) ? scope.worktreeId(worktreeId) : worktreeId
+/** Excludes rows whose dispatch id appears in `table`, when that table exists. */
+function unlessListedIn(db: Database, table: string, dispatchIdColumn: string): string {
+  return hasColumns(db, table, ['dispatch_id'])
+    ? `AND NOT EXISTS (SELECT 1 FROM ${table} x WHERE x.dispatch_id = ${dispatchIdColumn})`
+    : ''
 }
 
-/** Rows to rewrite; a structured (chat) worker stays local with its chat (owner decision C). */
+/**
+ * Rows to rewrite; a structured (chat) worker stays local with its chat (owner decision C). A live
+ * row in scope throws, so the store gets no ledger entry and a later pass finds it settled.
+ */
 function plan(
   rows: SqliteRow[],
   scope: WslMoveRewriteScope,
@@ -51,8 +68,14 @@ function plan(
     if (!key || !from || isStructuredWorkerHandle(text(row, handleColumn))) {
       return []
     }
-    const to = hostWorktreeId(scope, from)
-    return to === from ? [] : [{ key, from, to }]
+    const to = scope.inScope(from) ? scope.worktreeId(from) : from
+    if (to === from) {
+      return []
+    }
+    if (row.live === 1) {
+      throw new Error('wsl_move_orchestration_worker_live')
+    }
+    return [{ key, from, to }]
   })
 }
 
@@ -67,10 +90,14 @@ function dispatchRewrites(db: Database, scope: WslMoveRewriteScope): Rewrite[] {
   ) {
     return []
   }
+  // A federated dispatch's row names the remote host's worktree.
   const rows = db
     .prepare(
-      `SELECT dispatch_id, worktree_id, agent_terminal_handle FROM worker_dispatches
-        WHERE worktree_id IS NOT NULL AND state NOT IN ${LIVE_WORKER_STATES_SQL}`
+      `SELECT w.dispatch_id, w.worktree_id, w.agent_terminal_handle,
+              w.state IN ${LIVE_WORKER_STATES_SQL} AS live
+         FROM worker_dispatches w
+        WHERE w.worktree_id IS NOT NULL
+          ${unlessListedIn(db, 'federated_dispatches', 'w.dispatch_id')}`
     )
     .all()
   return plan(rows, scope, 'dispatch_id', 'agent_terminal_handle')
@@ -89,16 +116,14 @@ function resourceRewrites(db: Database, scope: WslMoveRewriteScope): Rewrite[] {
     return []
   }
   // A federated worker's row belongs with its attachment, which a remote home reads verbatim.
-  const remote = hasColumns(db, 'remote_dispatch_attachments', ['dispatch_id'])
-    ? `AND r.owner_dispatch_id NOT IN (SELECT dispatch_id FROM remote_dispatch_attachments)`
-    : ''
   const rows = db
     .prepare(
-      `SELECT r.id, r.worktree_id, r.terminal_handle FROM worker_terminal_resources r
+      `SELECT r.id, r.worktree_id, r.terminal_handle,
+              COALESCE(w.state IN ${LIVE_WORKER_STATES_SQL}, 0) AS live
+         FROM worker_terminal_resources r
          LEFT JOIN worker_dispatches w ON w.dispatch_id = r.owner_dispatch_id
         WHERE r.worktree_id IS NOT NULL
-          AND (w.state IS NULL OR w.state NOT IN ${LIVE_WORKER_STATES_SQL})
-          ${remote}`
+          ${unlessListedIn(db, 'remote_dispatch_attachments', 'r.owner_dispatch_id')}`
     )
     .all()
   return plan(rows, scope, 'id', 'terminal_handle')
@@ -118,7 +143,7 @@ function applyRewrites(db: Database, sql: string, rewrites: readonly Rewrite[]):
 
 /**
  * Idempotent: a rewritten id is no longer a UNC path of the distro, so a second run finds nothing.
- * One write transaction for both tables. Returns how many rows changed.
+ * One write transaction for both tables, planned before any write. Returns how many rows changed.
  */
 export function rewriteWslMoveOrchestrationHistory(
   db: Database,
@@ -126,16 +151,18 @@ export function rewriteWslMoveOrchestrationHistory(
 ): number {
   db.exec('BEGIN IMMEDIATE')
   try {
+    const dispatches = dispatchRewrites(db, scope)
+    const resources = resourceRewrites(db, scope)
     const changed =
       applyRewrites(
         db,
         `UPDATE worker_dispatches SET worktree_id = ? WHERE dispatch_id = ? AND worktree_id = ?`,
-        dispatchRewrites(db, scope)
+        dispatches
       ) +
       applyRewrites(
         db,
         `UPDATE worker_terminal_resources SET worktree_id = ? WHERE id = ? AND worktree_id = ?`,
-        resourceRewrites(db, scope)
+        resources
       )
     db.exec('COMMIT')
     return changed
@@ -158,7 +185,7 @@ export function registerWslMoveOrchestrationHistoryStore(databasePath: string): 
       if (!existsSync(databasePath)) {
         return
       }
-      const db = new Database(databasePath, { fileMustExist: true, timeout: 5_000 })
+      const db = new Database(databasePath, { fileMustExist: true, timeout: BUSY_TIMEOUT_MS })
       try {
         // A FULL commit is on disk when it returns, which is what the ledger entry needs.
         db.pragma('synchronous = FULL')

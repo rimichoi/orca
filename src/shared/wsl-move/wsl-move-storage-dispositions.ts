@@ -165,7 +165,7 @@ export const SQLITE_TABLE_DISPOSITIONS: Record<string, WslMoveFieldDisposition> 
     ...tables('orchestration', ['worker_dispatches', 'worker_terminal_resources'], {
       disposition: 'rewrite-desktop',
       item: 53,
-      note: "worktree_id of a settled local dispatch becomes the host's id (D1b-7e); chat workers, live rows and JSON receipts stay as written."
+      note: "worktree_id of a settled local dispatch becomes the host's id (D1b-7e); a live one holds the store until it settles. Chat and federated workers and JSON receipts stay as written."
     }),
     ...tables(
       'orchestration',

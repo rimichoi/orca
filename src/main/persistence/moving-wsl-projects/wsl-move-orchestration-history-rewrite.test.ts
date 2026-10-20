@@ -28,6 +28,7 @@ const MOVED_ON_HOST = 'repo-a::/home/dev/repo-a'
 const STAYING = 'repo-b::\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo-b'
 const OTHER_DISTRO = 'repo-a::\\\\wsl.localhost\\Debian\\home\\dev\\repo-a'
 const SSH_PATH = 'repo-a::/srv/repo-a'
+const MOVED_WSL_DOLLAR = 'repo-a::\\\\wsl$\\Ubuntu\\home\\dev\\repo-a'
 const CHAT_HANDLE = `${STRUCTURED_WORKER_HANDLE_PREFIX}chat-1`
 
 let userDataPath: string
@@ -61,8 +62,9 @@ function seedOrchestrationHistory(): void {
     )
     dispatch.run('d-moved', 'succeeded', MOVED, 'term_1')
     dispatch.run('d-failed', 'failed', MOVED, 'term_2')
-    dispatch.run('d-live', 'ready', MOVED, 'term_3')
-    dispatch.run('d-chat', 'succeeded', MOVED, CHAT_HANDLE)
+    dispatch.run('d-wsl-dollar', 'stopped', MOVED_WSL_DOLLAR, 'term_3')
+    dispatch.run('d-chat', 'ready', MOVED, CHAT_HANDLE)
+    dispatch.run('d-federated', 'succeeded', MOVED, 'term_8')
     dispatch.run('d-staying', 'succeeded', STAYING, 'term_4')
     dispatch.run('d-other-distro', 'succeeded', OTHER_DISTRO, 'term_5')
     dispatch.run('d-ssh', 'succeeded', SSH_PATH, 'term_6')
@@ -73,7 +75,6 @@ function seedOrchestrationHistory(): void {
        VALUES (?, ?, ?, ?, ?)`
     )
     resource.run('r-moved', 'd-moved', 'd-moved', MOVED, 'term_1')
-    resource.run('r-live', 'd-live', 'd-live', MOVED, 'term_3')
     resource.run('r-chat', 'd-chat', 'd-chat', MOVED, CHAT_HANDLE)
     resource.run('r-remote', 'd-remote', 'd-remote', MOVED, 'term_7')
     db.prepare(
@@ -81,6 +82,11 @@ function seedOrchestrationHistory(): void {
          (dispatch_id, task_id, home_peer_fingerprint, runtime_epoch, state, worktree_id)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run('d-remote', 'task-1', 'peer', 'epoch', 'succeeded', MOVED)
+    db.prepare(
+      `INSERT INTO federated_dispatches
+         (dispatch_id, environment_id, environment_name, peer_fingerprint, remote_worktree_id)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run('d-federated', 'env-1', 'Remote', 'peer', MOVED)
   })
 }
 
@@ -133,16 +139,16 @@ describe('WSL move orchestration history rewrite', () => {
     expect(dispatchIds()).toEqual({
       'd-chat': MOVED,
       'd-failed': MOVED_ON_HOST,
-      'd-live': MOVED,
+      'd-federated': MOVED,
       'd-moved': MOVED_ON_HOST,
       'd-no-worktree': null,
       'd-other-distro': OTHER_DISTRO,
       'd-ssh': SSH_PATH,
-      'd-staying': STAYING
+      'd-staying': STAYING,
+      'd-wsl-dollar': MOVED_ON_HOST
     })
     expect(resourceIds()).toEqual({
       'r-chat': MOVED,
-      'r-live': MOVED,
       'r-moved': MOVED_ON_HOST,
       'r-remote': MOVED
     })
@@ -222,7 +228,61 @@ describe('WSL move orchestration history rewrite', () => {
     ])
   })
 
-  it('reads an older schema as it stands', async () => {
+  it('waits, unrecorded, while a worker in scope is still live, then rewrites it once settled', async () => {
+    seedOrchestrationHistory()
+    withDb((db) => {
+      db.prepare(
+        `INSERT INTO worker_dispatches (dispatch_id, state, worktree_id, agent_terminal_handle)
+         VALUES ('d-live', 'start_unknown', ?, 'term_9')`
+      ).run(MOVED)
+      db.prepare(
+        `INSERT INTO worker_terminal_resources
+           (id, origin_dispatch_id, owner_dispatch_id, worktree_id, terminal_handle)
+         VALUES ('r-live', 'd-live', 'd-live', ?, 'term_9')`
+      ).run(MOVED)
+    })
+    const dispatches = dispatchIds()
+    seedWslMoveCutover(userDataPath, committedMove())
+
+    await runWslMoveDesktopRewritePass({ userDataPath, warn: () => {} })
+
+    expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual([])
+    expect(dispatchIds()).toEqual(dispatches)
+    withDb((db) =>
+      db.prepare(`UPDATE worker_dispatches SET state = 'failed' WHERE dispatch_id = 'd-live'`).run()
+    )
+
+    await runWslMoveDesktopRewritePass({ userDataPath })
+
+    expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual([
+      WSL_MOVE_ORCHESTRATION_HISTORY_STORE_ID
+    ])
+    expect(dispatchIds()['d-live']).toBe(MOVED_ON_HOST)
+    expect(resourceIds()['r-live']).toBe(MOVED_ON_HOST)
+  })
+
+  it('rewrites a schema older than worker-terminal resources and remote attachments', async () => {
+    const db = new Database(databasePath)
+    db.exec(
+      `CREATE TABLE worker_dispatches (
+         dispatch_id TEXT PRIMARY KEY, state TEXT NOT NULL,
+         worktree_id TEXT, agent_terminal_handle TEXT)`
+    )
+    db.prepare(`INSERT INTO worker_dispatches VALUES ('d-old', 'succeeded', ?, 'term_1')`).run(
+      MOVED
+    )
+    db.close()
+    seedWslMoveCutover(userDataPath, committedMove())
+
+    await runWslMoveDesktopRewritePass({ userDataPath })
+
+    expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual([
+      WSL_MOVE_ORCHESTRATION_HISTORY_STORE_ID
+    ])
+    expect(dispatchIds()).toEqual({ 'd-old': MOVED_ON_HOST })
+  })
+
+  it('records a schema with no worktree column, changing nothing', async () => {
     const db = new Database(databasePath)
     db.exec(`CREATE TABLE worker_dispatches (dispatch_id TEXT PRIMARY KEY, state TEXT NOT NULL)`)
     db.close()
