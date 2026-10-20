@@ -1,5 +1,6 @@
 import type { TaskPageGitHubListStateModel } from './use-task-page-github-list-state'
 import { useAppStore } from '@/store'
+import { getGitHubWorkItemRepo } from '@/lib/github-work-item-repo-row'
 import { useState, useMemo, useLayoutEffect, useCallback, useEffect } from 'react'
 import type { ItemDialogTab } from '@/components/GitHubItemDialog'
 import { stripRepoQualifiers } from '../../../shared/task-query'
@@ -24,6 +25,7 @@ export function useTaskPageGitHubDetail(model: TaskPageGitHubListStateModel) {
   const {
     pageData,
     openTaskPage,
+    repos,
     repoMap,
     selectedRepos,
     primaryRepo,
@@ -50,7 +52,8 @@ export function useTaskPageGitHubDetail(model: TaskPageGitHubListStateModel) {
     ? {
         id: githubTaskDrawerWorkItem.id,
         repoId: githubTaskDrawerWorkItem.repoId,
-        url: githubTaskDrawerWorkItem.url
+        url: githubTaskDrawerWorkItem.url,
+        repoHostId: githubTaskDrawerWorkItem.repoHostId
       }
     : null
   const appliedWorkItemsCacheQuery = useMemo(
@@ -105,7 +108,8 @@ export function useTaskPageGitHubDetail(model: TaskPageGitHubListStateModel) {
     pendingGithubScrollRestoreRef,
     taskListPositionRef
   ])
-  const dialogRepoPath = dialogWorkItem ? (repoMap.get(dialogWorkItem.repoId)?.path ?? null) : null
+  const dialogRepo = dialogWorkItem ? getGitHubWorkItemRepo(repos, dialogWorkItem) : undefined
+  const dialogRepoPath = dialogRepo?.path ?? null
   const dialogSourceContext = useMemo(() => {
     if (!dialogWorkItem) {
       return null
@@ -113,12 +117,13 @@ export function useTaskPageGitHubDetail(model: TaskPageGitHubListStateModel) {
     if (
       pageData.openGitHubSourceContext?.provider === 'github' &&
       pageData.openGitHubWorkItem?.id === dialogWorkItem.id &&
-      pageData.openGitHubWorkItem.repoId === dialogWorkItem.repoId
+      pageData.openGitHubWorkItem.repoId === dialogWorkItem.repoId &&
+      pageData.openGitHubWorkItem.repoHostId === dialogWorkItem.repoHostId
     ) {
       return pageData.openGitHubSourceContext
     }
-    return getTaskPageRepoSourceContext(repoMap.get(dialogWorkItem.repoId), 'github')
-  }, [dialogWorkItem, pageData.openGitHubSourceContext, pageData.openGitHubWorkItem, repoMap])
+    return getTaskPageRepoSourceContext(dialogRepo, 'github')
+  }, [dialogRepo, dialogWorkItem, pageData.openGitHubSourceContext, pageData.openGitHubWorkItem])
   const gitlabDialogRepo = useMemo(
     () =>
       gitlabDialogItem
@@ -178,7 +183,10 @@ export function useTaskPageGitHubDetail(model: TaskPageGitHubListStateModel) {
           taskSource: 'github',
           preselectedRepoId: item.repoId,
           openGitHubWorkItem: item,
-          openGitHubSourceContext: getTaskPageRepoSourceContext(repoMap.get(item.repoId), 'github'),
+          openGitHubSourceContext: getTaskPageRepoSourceContext(
+            getGitHubWorkItemRepo(repos, item),
+            'github'
+          ),
           openGitHubInitialTab: initialTab
         },
         {
@@ -193,7 +201,7 @@ export function useTaskPageGitHubDetail(model: TaskPageGitHubListStateModel) {
       githubResumeContextKey,
       openTaskPage,
       pendingGithubScrollRestoreRef,
-      repoMap,
+      repos,
       taskListPositionRef
     ]
   )

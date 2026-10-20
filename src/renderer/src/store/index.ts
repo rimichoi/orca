@@ -78,6 +78,7 @@ const withDevelopmentStoreProbes = (createState: StateCreator<AppState, [], []>)
     : createState
 
 // Why buffer records outermost: the probes must see each caller's own partial and frame.
+// Why e2e checks the buffer invariant too: a writer that skips the record must fail there, not drift.
 export const useAppStore = create<AppState>()(
   withEditorBufferRecords(
     withDevelopmentStoreProbes(
@@ -140,7 +141,8 @@ export const useAppStore = create<AppState>()(
           ...createWorkspaceAttentionSlice(...a)
         }
       })
-    )
+    ),
+    import.meta.env.DEV || e2eConfig.exposeStore
   )
 )
 

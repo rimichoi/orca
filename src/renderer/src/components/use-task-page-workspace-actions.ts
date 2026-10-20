@@ -4,6 +4,7 @@ import type { GitHubWorkItem } from '../../../shared/github/work-item-types'
 import type { GitLabWorkItem } from '../../../shared/gitlab-types'
 import type { LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { useAppStore } from '@/store'
+import { getGitHubWorkItemRepo } from '@/lib/github-work-item-repo-row'
 import { findGithubWorkItemWorkspaceAttachment } from '@/lib/github-work-item-workspace-attachment'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { toast } from 'sonner'
@@ -14,7 +15,7 @@ import {
   getTaskPageRepoSourceContext
 } from './task-page-source-context'
 export function useTaskPageWorkspaceActions(model: TaskPageSearchActionsModel) {
-  const { repoMap, openModal } = model
+  const { repos, repoMap, openModal } = model
   const openComposerForItem = useCallback(
     (item: GitHubWorkItem): void => {
       const linkedWorkItem: LinkedWorkItemSummary = {
@@ -32,14 +33,17 @@ export function useTaskPageWorkspaceActions(model: TaskPageSearchActionsModel) {
       openModal('new-workspace-composer', {
         linkedWorkItem,
         initialGitHubWorkItem: item,
-        taskSourceContext: getTaskPageRepoSourceContext(repoMap.get(item.repoId), 'github'),
+        taskSourceContext: getTaskPageRepoSourceContext(
+          getGitHubWorkItemRepo(repos, item),
+          'github'
+        ),
         prefilledName: getGitHubWorkItemWorkspaceSeed(item),
         initialRepoId: item.repoId,
         enableIssueAutomation: item.type === 'issue',
         telemetrySource: 'sidebar'
       })
     },
-    [openModal, repoMap]
+    [openModal, repos]
   )
   const handleUseWorkItem = useCallback(
     (item: GitHubWorkItem): void => {

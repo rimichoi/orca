@@ -47,13 +47,7 @@ function openRestoredDirtyTab(
   store.getState().markFileDirty(filePath, true)
   store.getState().setLastKnownDiskSignature(filePath, getDiskBaselineSignature(baselineContent))
   // Why: hydration flags restored dirty tabs for verification; tests mimic it.
-  store.setState({
-    openFiles: store
-      .getState()
-      .openFiles.map((f) =>
-        f.id === filePath ? { ...f, pendingDiskBaselineVerification: true } : f
-      )
-  } as never)
+  store.getState().setPendingDiskBaselineVerification(filePath, true)
 }
 
 describe('attachRestoredTabConflictScan', () => {
