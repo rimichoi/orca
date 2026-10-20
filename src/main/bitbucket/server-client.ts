@@ -7,6 +7,7 @@ import {
 import type { BitbucketPullRequestInfo } from './pull-request-mappers'
 import { resolveBitbucketServerAuthConfig, serverAuthHeaders } from './server-auth-config'
 import {
+  bitbucketServerHeadSha,
   deriveBitbucketServerBuildStatus,
   deriveBitbucketServerMergeable,
   mapBitbucketServerPullRequest,
@@ -54,7 +55,7 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
       }
       return null
     }
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: every Raw* field is optional and the mappers narrow each one before use.
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: every Raw* field is optional and the mappers type-check each one before use.
     return (await response.json()) as T
   } catch (error) {
     if (options.throwOnFailure) {
@@ -72,7 +73,7 @@ async function normalizePullRequest(
   repo: BitbucketServerRepoRef,
   raw: RawBitbucketServerPullRequest
 ): Promise<BitbucketPullRequestInfo | null> {
-  const headSha = raw.fromRef?.latestCommit?.trim()
+  const headSha = bitbucketServerHeadSha(raw)
   const isOpen = mapBitbucketServerState(raw.state) === 'open'
   const [stats, merge] = await Promise.all([
     headSha

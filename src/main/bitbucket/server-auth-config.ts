@@ -29,22 +29,22 @@ export function normalizeBitbucketServerBaseUrl(value: string | null | undefined
   return `${url.protocol}//${url.host}${path}`
 }
 
-function envAuthConfig(): BitbucketServerAuthConfig {
-  return {
-    baseUrl: normalizeBitbucketServerBaseUrl(envValue('ORCA_BITBUCKET_SERVER_BASE_URL')),
-    accessToken: envValue('ORCA_BITBUCKET_SERVER_TOKEN')
-  }
+// Why: the URL and token are only used as a pair, so a half-set environment can
+// never send the stored token to the environment's host (or the reverse).
+function envAuthConfig(): BitbucketServerAuthConfig | null {
+  const baseUrl = normalizeBitbucketServerBaseUrl(envValue('ORCA_BITBUCKET_SERVER_BASE_URL'))
+  const accessToken = envValue('ORCA_BITBUCKET_SERVER_TOKEN')
+  return baseUrl && accessToken ? { baseUrl, accessToken } : null
 }
 
 export function hasEnvBitbucketServerCredential(): boolean {
-  const env = envAuthConfig()
-  return Boolean(env.baseUrl && env.accessToken)
+  return envAuthConfig() !== null
 }
 
 // Plaintext only, never decrypts: called on every repo detection.
 export function getBitbucketServerBaseUrl(): string | null {
   const env = envAuthConfig()
-  if (env.baseUrl) {
+  if (env) {
     return env.baseUrl
   }
   return hasStoredBitbucketServerCredential()
@@ -58,18 +58,19 @@ export function hasBitbucketServerCredential(): boolean {
 
 export function resolveBitbucketServerAuthConfig(): BitbucketServerAuthConfig {
   const env = envAuthConfig()
-  if (env.baseUrl && env.accessToken) {
+  if (env) {
     return env
   }
   try {
     const secret = loadStoredBitbucketServerSecret()
-    return {
-      baseUrl:
-        env.baseUrl ?? getStoredBitbucketServerMetadata()?.baseUrl ?? secret?.baseUrl ?? null,
-      accessToken: env.accessToken ?? secret?.accessToken ?? null
-    }
+    const baseUrl = getStoredBitbucketServerMetadata()?.baseUrl ?? null
+    // Why: the sealed envelope decides where the token goes; a torn or edited plaintext
+    // URL that disagrees with it must not redirect the token to another host.
+    return secret?.baseUrl && secret.baseUrl === baseUrl
+      ? { baseUrl, accessToken: secret.accessToken }
+      : { baseUrl, accessToken: null }
   } catch {
-    return { baseUrl: env.baseUrl, accessToken: env.accessToken }
+    return { baseUrl: null, accessToken: null }
   }
 }
 

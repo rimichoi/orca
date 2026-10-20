@@ -35,6 +35,15 @@ describe('parseBitbucketServerRepoRef', () => {
     ).toBeNull()
   })
 
+  it('ignores an https remote outside the registered context path', () => {
+    expect(
+      parseBitbucketServerRepoRef(
+        'https://bitbucket.example.com/elsewhere/scm/prj/repo.git',
+        'https://bitbucket.example.com/bitbucket'
+      )
+    ).toBeNull()
+  })
+
   it('strips a context path from https remotes', () => {
     const base = 'https://bitbucket.example.com/bitbucket'
     expect(

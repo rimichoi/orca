@@ -39,10 +39,15 @@ export type RawBitbucketServerBuildStats = {
   failed?: number
 }
 
+// Why: the response is cast, not validated, so a proxy can hand back non-strings here.
+function stringOf(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
 export function mapBitbucketServerState(
   state: string | null | undefined
 ): BitbucketPullRequestInfo['state'] {
-  const normalized = state?.trim().toUpperCase()
+  const normalized = stringOf(state)?.trim().toUpperCase()
   if (normalized === 'MERGED') {
     return 'merged'
   }
@@ -68,7 +73,7 @@ export function deriveBitbucketServerMergeable(
   if (merge?.conflicted) {
     return 'CONFLICTING'
   }
-  return merge?.outcome?.toUpperCase() === 'CLEAN' ? 'MERGEABLE' : 'UNKNOWN'
+  return stringOf(merge?.outcome)?.toUpperCase() === 'CLEAN' ? 'MERGEABLE' : 'UNKNOWN'
 }
 
 export function deriveBitbucketServerReviewDecision(
@@ -77,11 +82,15 @@ export function deriveBitbucketServerReviewDecision(
   if (!reviewers || reviewers.length === 0) {
     return null
   }
-  const statuses = reviewers.map((reviewer) => reviewer.status?.toUpperCase())
+  const statuses = reviewers.map((reviewer) => stringOf(reviewer.status)?.toUpperCase())
   if (statuses.includes('NEEDS_WORK')) {
     return 'CHANGES_REQUESTED'
   }
   return statuses.includes('APPROVED') ? 'APPROVED' : 'REVIEW_REQUIRED'
+}
+
+export function bitbucketServerHeadSha(raw: RawBitbucketServerPullRequest): string | undefined {
+  return stringOf(raw.fromRef?.latestCommit)?.trim() || undefined
 }
 
 export function mapBitbucketServerPullRequest(
@@ -89,14 +98,15 @@ export function mapBitbucketServerPullRequest(
   status: CheckStatus,
   mergeable: PRMergeableState
 ): BitbucketPullRequestInfo | null {
-  const url = raw.links?.self?.[0]?.href
-  if (typeof raw.id !== 'number' || !raw.title || !url) {
+  const url = stringOf(raw.links?.self?.[0]?.href)
+  const title = stringOf(raw.title)
+  if (typeof raw.id !== 'number' || !title || !url) {
     return null
   }
-  const headSha = raw.fromRef?.latestCommit?.trim()
+  const headSha = bitbucketServerHeadSha(raw)
   return {
     number: raw.id,
-    title: raw.title,
+    title,
     state: mapBitbucketServerState(raw.state),
     url,
     status,

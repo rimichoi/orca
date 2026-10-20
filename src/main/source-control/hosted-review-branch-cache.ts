@@ -24,6 +24,7 @@ import {
 } from './hosted-review-inflight-lookups'
 import {
   __resetHostedReviewScopeGenerationsForTests,
+  bumpAllScopeGenerations,
   bumpScopeGeneration,
   hostedReviewRepoScope,
   scopeGeneration
@@ -154,10 +155,7 @@ export function invalidateHostedReviewBranchCache(
   repoPath: string,
   executionHostId: ExecutionHostId
 ): void {
-  invalidateScope(hostedReviewRepoScope(repoPath, executionHostId))
-}
-
-function invalidateScope(scope: string): void {
+  const scope = hostedReviewRepoScope(repoPath, executionHostId)
   bumpScopeGeneration(scope)
   const prefix = `${scope}${KEY_SEPARATOR}`
   for (const key of entries.keys()) {
@@ -174,13 +172,8 @@ function invalidateScope(scope: string): void {
  * that now fails would otherwise keep serving the answer the old credential got.
  */
 export function invalidateAllHostedReviewBranchCaches(): void {
-  // A key starts with the two-part repo scope (host, path); NUL cannot occur inside either.
-  const scopes = new Set(
-    [...entries.keys()].map((key) => key.split(KEY_SEPARATOR, 2).join(KEY_SEPARATOR))
-  )
-  for (const scope of scopes) {
-    invalidateScope(scope)
-  }
+  bumpAllScopeGenerations()
+  entries.clear()
   retireInflightWithPrefix('')
   dropFailuresWithPrefix('')
 }

@@ -96,4 +96,18 @@ describe('Bitbucket Server mappers', () => {
         ?.updatedAt
     ).toBe('')
   })
+
+  it('tolerates non-string fields from a misbehaving proxy', () => {
+    // JSON.parse yields an untyped payload, standing in for a malformed server response.
+    const odd = JSON.parse(
+      JSON.stringify({
+        ...serverPr(),
+        state: 1,
+        fromRef: { latestCommit: 5 },
+        reviewers: [{ status: 7 }]
+      })
+    )
+    expect(() => mapBitbucketServerPullRequest(odd, 'neutral', 'UNKNOWN')).not.toThrow()
+    expect(deriveBitbucketServerMergeable(JSON.parse('{"outcome":3}'))).toBe('UNKNOWN')
+  })
 })

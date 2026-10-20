@@ -44,4 +44,24 @@ describe('invalidateAllHostedReviewBranchCaches', () => {
       ).rejects.toThrow('HTTP 404')
     }
   })
+
+  it('discards an answer that was still in flight when the credential changed', async () => {
+    const identity = { repoPath: '/repo-c', executionHostId: 'local' as const, branch: 'feat' }
+    let settle: (value: HostedReviewInfo | null) => void = () => {}
+    const stale = withHostedReviewBranchCache(
+      identity,
+      { headOid: null },
+      () => new Promise<HostedReviewInfo | null>((resolve) => (settle = resolve))
+    )
+
+    invalidateAllHostedReviewBranchCaches()
+    settle(null)
+    await stale
+
+    const fresh = vi.fn(async () => review)
+    await expect(withHostedReviewBranchCache(identity, { headOid: null }, fresh)).resolves.toEqual(
+      review
+    )
+    expect(fresh).toHaveBeenCalledOnce()
+  })
 })

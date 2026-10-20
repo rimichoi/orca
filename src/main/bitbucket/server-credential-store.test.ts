@@ -99,4 +99,40 @@ describe('Bitbucket Server credential store', () => {
     const { config } = await loadModules()
     expect(config.normalizeBitbucketServerBaseUrl(input)).toBe(expected)
   })
+
+  it('refuses the stored token when the plaintext base URL no longer matches the sealed one', async () => {
+    const { store } = await loadModules()
+    store.saveBitbucketServerCredential({
+      baseUrl: 'https://bitbucket.example.com',
+      account: 'alice',
+      accessToken: 't0k'
+    })
+    writeFileSync(
+      join(tempHome, '.orca', 'bitbucket-server-credential.json'),
+      JSON.stringify({ version: 1, baseUrl: 'https://attacker.example.com', account: 'alice' })
+    )
+    const { config } = await loadModules()
+
+    expect(config.resolveBitbucketServerAuthConfig().accessToken).toBeNull()
+  })
+
+  it.each([
+    ['only the URL', { ORCA_BITBUCKET_SERVER_BASE_URL: 'https://env.example.com' }],
+    ['only the token', { ORCA_BITBUCKET_SERVER_TOKEN: 'env' }]
+  ])('ignores a half-set environment pair (%s) and keeps the stored pair', async (_label, env) => {
+    const { store } = await loadModules()
+    store.saveBitbucketServerCredential({
+      baseUrl: 'https://stored.example.com',
+      account: 'alice',
+      accessToken: 'stored'
+    })
+    Object.assign(process.env, env)
+    const { config } = await loadModules()
+
+    expect(config.getBitbucketServerBaseUrl()).toBe('https://stored.example.com')
+    expect(config.resolveBitbucketServerAuthConfig()).toEqual({
+      baseUrl: 'https://stored.example.com',
+      accessToken: 'stored'
+    })
+  })
 })

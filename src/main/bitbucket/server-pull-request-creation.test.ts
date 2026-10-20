@@ -190,6 +190,62 @@ describe('Bitbucket Server pull request creation', () => {
     )
   })
 
+  it('does not report a declined PR as already existing on 409', async () => {
+    vi.stubGlobal(
+      'fetch',
+      routeFetch({
+        [DEFAULT_REVIEWERS]: () => Response.json([]),
+        [`${REPO_API}/pull-requests?`]: () =>
+          Response.json({ size: 1, values: [{ ...createdPr(41), state: 'DECLINED' }] }),
+        [`${REPO_API}/pull-requests`]: () =>
+          serverError(409, 'refs/heads/main is already up-to-date with refs/heads/feat'),
+        [`${BASE}/rest/build-status`]: () =>
+          Response.json({ successful: 0, inProgress: 0, failed: 0 }),
+        [REPO_API]: () => repoResponse()
+      })
+    )
+
+    await expect(
+      createBitbucketServerPullRequest('/repo', CREATE_INPUT, 'local')
+    ).resolves.toMatchObject({ ok: false, code: 'validation' })
+  })
+
+  it('reports a timed-out create as possibly completed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      routeFetch({
+        [DEFAULT_REVIEWERS]: () => Response.json([]),
+        [`${REPO_API}/pull-requests?`]: () => Response.json({ size: 0, values: [] }),
+        [`${REPO_API}/pull-requests`]: () => {
+          throw Object.assign(new Error('timed out'), { name: 'TimeoutError' })
+        },
+        [REPO_API]: () => repoResponse()
+      })
+    )
+
+    await expect(
+      createBitbucketServerPullRequest('/repo', CREATE_INPUT, 'local')
+    ).resolves.toMatchObject({ ok: false, code: 'unknown_completion' })
+  })
+
+  it('logs a failed create without the token', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      routeFetch({
+        [DEFAULT_REVIEWERS]: () => Response.json([]),
+        [`${REPO_API}/pull-requests`]: () => serverError(401, 'Authentication failed'),
+        [REPO_API]: () => repoResponse()
+      })
+    )
+
+    await createBitbucketServerPullRequest('/repo', CREATE_INPUT, 'local')
+
+    expect(warn).toHaveBeenCalledOnce()
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('t0k')
+    warn.mockRestore()
+  })
+
   it.each([
     [401, 'auth_required'],
     [403, 'auth_required'],

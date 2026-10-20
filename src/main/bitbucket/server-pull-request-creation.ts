@@ -145,6 +145,10 @@ function serverErrorMessage(error: HostedReviewApiRequestError): string | null {
 }
 
 function classifyCreateError(error: unknown): CreateHostedReviewResult {
+  console.warn(
+    'createBitbucketServerPullRequest failed:',
+    error instanceof Error ? error.message : String(error)
+  )
   if (!(error instanceof HostedReviewApiRequestError)) {
     return {
       ok: false,
