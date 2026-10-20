@@ -1,3 +1,4 @@
+import { beginEnclosingWorktreeRemoval } from '@/store/active-worktree-deselection-intent'
 import type { WorktreePurgeTarget, WorktreeSlice } from '../../worktree-helpers'
 import type { WorktreeSliceGet, WorktreeSliceSet } from '../listing/worktree-slice-types'
 import type { ProjectHostSetup } from '../../../../../../shared/project-types'
@@ -15,7 +16,7 @@ import {
   dropWorktreeRowsForRemovedRuntimeEnvironments,
   isRemovedRuntimeHostId
 } from '../../stale-runtime-host-rows'
-import { buildWorktreePurgeState } from './worktree-purge-state'
+import { buildFullWorktreePurgeState } from './worktree-purge-state'
 import { removeWorktreeVisitEntriesForTargets } from '@/lib/worktree-visit-recency'
 import { settleAttentionRemovedBy } from '../../workspace-attention/attention-removal-follow-up'
 
@@ -23,7 +24,7 @@ export function createPurgeStaleRuntimeHostState(
   set: WorktreeSliceSet,
   get: WorktreeSliceGet
 ): WorktreeSlice['purgeStaleRuntimeHostState'] {
-  return (removedEnvironmentIds) => {
+  const purge: WorktreeSlice['purgeStaleRuntimeHostState'] = (removedEnvironmentIds) => {
     const removed = new Set(removedEnvironmentIds)
     if (removed.size === 0) {
       return
@@ -211,7 +212,9 @@ export function createPurgeStaleRuntimeHostState(
             const targets = removedWorktreeTargets.filter((target) => target.id === worktreeId)
             return targets.length > 0 ? targets : [{ id: worktreeId }]
           })
-          const purgeState = purgeTargets.length > 0 ? buildWorktreePurgeState(s, purgeTargets) : {}
+          // Why full: survivor ids were dropped above unless the session partition proves the bare-id state is the removed host's.
+          const purgeState =
+            purgeTargets.length > 0 ? buildFullWorktreePurgeState(s, purgeTargets) : {}
           const visitPurgeTargets = [
             ...removedWorktreeTargets,
             ...purgeTargets.filter(
@@ -303,5 +306,16 @@ export function createPurgeStaleRuntimeHostState(
         }),
       { settleFlags: false }
     )
+  }
+  return (ids) => {
+    const removed = [...ids]
+    const finishRemovals = removed.map((id) =>
+      beginEnclosingWorktreeRemoval({ hostId: toRuntimeExecutionHostId(id) })
+    )
+    try {
+      purge(removed)
+    } finally {
+      finishRemovals.forEach((finish) => finish())
+    }
   }
 }

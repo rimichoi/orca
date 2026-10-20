@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { sendLayoutCommandToOwner } from '@/runtime/layout-owner-command'
 import { createTabsSliceMockApi } from '@/store/slices/tabs-slice-test-harness'
+import { beginLayoutFramePositions, endLayoutFramePositions } from '@/runtime/layout-frame-position'
 import { createTestStore, makeWorktree, seedStore } from '@/store/slices/store-test-helpers'
 import {
   dropTabThroughLayoutOwner,
@@ -139,6 +140,21 @@ describe('dropTabThroughLayoutOwner', () => {
     expect(store().getState().activeGroupIdByWorktree[WT]).toBe(right)
   })
 
+  it('leaves placing a lone tab’s group to main’s frame while frames flow', () => {
+    const { left, right } = seeded()
+    const layout = store().getState().layoutByWorktree[WT]
+    beginLayoutFramePositions()
+    try {
+      dropTabThroughLayoutOwner(WT, { kind: 'split', tabId: 'c', groupId: left, direction: 'left' })
+      lastHandlers().apply({ groupId: right })
+    } finally {
+      endLayoutFramePositions()
+    }
+
+    expect(store().getState().layoutByWorktree[WT]).toBe(layout)
+    expect(store().getState().activeGroupIdByWorktree[WT]).toBe(right)
+  })
+
   it('leaves a drop the window would skip to today’s path, sending nothing', () => {
     const { left, right } = seeded()
 
@@ -152,6 +168,17 @@ describe('dropTabThroughLayoutOwner', () => {
     ).toBe(false)
     expect(mocks.send).not.toHaveBeenCalled()
     expect(groupOf('c')).toBe(right)
+  })
+
+  it('leaves a move into the tab’s own group to today’s no-op, sending nothing', () => {
+    const { left } = seeded()
+    const before = orderOf(left)
+
+    expect(
+      dropTabThroughLayoutOwner(WT, { kind: 'move', tabId: 'a', groupId: left, index: 1 })
+    ).toBe(false)
+    expect(mocks.send).not.toHaveBeenCalled()
+    expect(orderOf(left)).toEqual(before)
   })
 
   it('reorders within a group at the index main got', () => {

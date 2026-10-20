@@ -264,14 +264,14 @@ describe('SortableTabContextMenu', () => {
   it('does not expose a native/terminal view switch', () => {
     const { container } = renderMenu()
 
-    expect(container.textContent).not.toContain('Switch to terminal view')
-    expect(container.textContent).not.toContain('Switch to chat view')
+    expect(container.textContent).not.toContain('Switch to Terminal Agent')
+    expect(container.textContent).not.toContain('Switch to Chat UI')
   })
 
   it('hides switching a terminal-view tab into chat view', () => {
     const { container } = renderMenu({ canToggleViewMode: true, onToggleViewMode: vi.fn() })
 
-    expect(container.textContent).not.toContain('Switch to chat view')
+    expect(container.textContent).not.toContain('Switch to Chat UI')
   })
 
   it('keeps the way back for a tab already in chat view, in the chat/CLI move section', () => {
@@ -283,11 +283,11 @@ describe('SortableTabContextMenu', () => {
     })
     const marker = getSurfaceSwitchMarker(container)
 
-    expect(getButton(container, 'Switch to terminal view').compareDocumentPosition(marker)).toBe(
+    expect(getButton(container, 'Switch to Terminal Agent').compareDocumentPosition(marker)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     )
     expect(marker.getAttribute('data-leading-separator')).toBe('false')
-    act(() => getButton(container, 'Switch to terminal view').click())
+    act(() => getButton(container, 'Switch to Terminal Agent').click())
     expect(onToggleViewMode).toHaveBeenCalled()
   })
 
@@ -359,10 +359,10 @@ describe('SortableTabContextMenu', () => {
     act(() => getButton(container, 'Close Others').click())
     expect(onCloseOthers).toHaveBeenCalledWith('term-1')
 
-    act(() => getButton(container, 'Close Tabs To The Right').click())
+    act(() => getButton(container, 'Close All Tabs To The Right').click())
     expect(onCloseToRight).toHaveBeenCalledWith('term-1')
 
-    act(() => getButton(container, 'Close Tabs To The Left').click())
+    act(() => getButton(container, 'Close All Tabs To The Left').click())
     expect(onCloseToLeft).toHaveBeenCalledWith('term-1')
   })
 
@@ -372,8 +372,8 @@ describe('SortableTabContextMenu', () => {
       hasTabsToRight: false
     })
 
-    expect(getButton(container, 'Close Tabs To The Left').disabled).toBe(true)
-    expect(getButton(container, 'Close Tabs To The Right').disabled).toBe(true)
+    expect(getButton(container, 'Close All Tabs To The Left').disabled).toBe(true)
+    expect(getButton(container, 'Close All Tabs To The Right').disabled).toBe(true)
   })
 
   it('hides move-tab split actions for a single-tab group', () => {
@@ -394,5 +394,14 @@ describe('SortableTabContextMenu', () => {
 
     expect(container.textContent).not.toContain('Move Tab to Split')
     expect(container.textContent).toContain('Split terminal right')
+  })
+
+  it('offers Close split pane only when the group is one of several splits', () => {
+    const onCloseSplitPane = vi.fn()
+    const { container } = renderMenu({ onCloseSplitPane })
+    act(() => getButton(container, 'Close split pane').click())
+    expect(onCloseSplitPane).toHaveBeenCalledOnce()
+
+    expect(renderMenu().container.textContent).not.toContain('Close split pane')
   })
 })

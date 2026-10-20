@@ -3,9 +3,11 @@ import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
 import CodexRestartChip from '../CodexRestartChip'
 import { CodexSharedServerBanner } from './CodexSharedServerBanner'
 import { ClaudeOldTerminalBanner } from './ClaudeOldTerminalBanner'
+import { ClaudeDiffPanelNoticeBanner } from './ClaudeDiffPanelNoticeBanner'
 import { NewerDaemonHoldBanner } from './NewerDaemonHoldBanner'
 import { TerminalSshReconnectOverlay } from './TerminalSshReconnectOverlay'
 import { useWslHostUnavailableReason } from './use-wsl-host-unavailable-reason'
+import { useManagedPairingRefusedEnvironmentId } from './use-managed-pairing-refused'
 import { DelayedRemoteRuntimeReconnectBanner } from './TerminalRemoteRuntimeReconnectBanner'
 import { TerminalProcessExitOverlay } from './TerminalProcessExitOverlay'
 import { MobileDriverOverlay } from './MobileDriverOverlay'
@@ -63,6 +65,13 @@ export function TerminalPaneCodexRestartPortals({
               ptyId={ptyId}
               tabId={tabId}
               leafId={pane.leafId}
+            />
+            <ClaudeDiffPanelNoticeBanner
+              key={`claude-diff-panel-notice-${pane.id}-${ptyId}`}
+              ptyId={ptyId}
+              tabId={tabId}
+              leafId={pane.leafId}
+              container={pane.container}
             />
             <NewerDaemonHoldBanner
               key={`newer-daemon-hold-${pane.id}-${ptyId}`}
@@ -162,6 +171,7 @@ export function TerminalPaneRecoveryPortals({
   const { managedPanes, paneTransportsRef, ptyRecoveryStatesByPaneId, showSshReconnectOverlay } =
     controller
   const wslHostUnavailable = useWslHostUnavailableReason(controller.worktreeId)
+  const pairingRefusedEnvironmentId = useManagedPairingRefusedEnvironmentId(controller.worktreeId)
   if (showSshReconnectOverlay) {
     return null
   }
@@ -178,8 +188,22 @@ export function TerminalPaneRecoveryPortals({
             key={`remote-runtime-reconnect-${pane.id}`}
             epoch={recoveryState.epoch}
             phase={recoveryState.phase}
-            onReconnect={() => paneTransportsRef.current.get(pane.id)?.retryRecovery?.()}
+            onReconnect={() => {
+              const retry = (): void => {
+                paneTransportsRef.current.get(pane.id)?.retryRecovery?.()
+              }
+              // Why connect first: it asks Orca to pair again, which a pane retry alone does not.
+              if (pairingRefusedEnvironmentId) {
+                void window.api.runtimeEnvironments
+                  .connect({ selector: pairingRefusedEnvironmentId })
+                  .catch(() => undefined)
+                  .finally(retry)
+                return
+              }
+              retry()
+            }}
             wslHostUnavailable={wslHostUnavailable}
+            pairingRefused={pairingRefusedEnvironmentId !== null}
           />,
           pane.container,
           `remote-runtime-reconnect-${pane.id}`

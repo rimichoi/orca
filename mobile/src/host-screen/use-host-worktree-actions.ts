@@ -1,8 +1,9 @@
 import { useCallback } from 'react'
+import { ORCA_SIDEBAR_INPUTS_IS_MAIN } from '../../../src/shared/sidebar-inputs-switch'
 import type { useRouter } from 'expo-router'
 import { floatingWorkspaceSessionPath } from '../session/floating-workspace'
 import { savePinnedIds } from '../storage/preferences'
-import type { useForgetHostClient } from '../transport/client-context'
+import type { useForgetHostClient } from '../transport/host-client-hooks'
 import { removeHostAndCloseClient } from '../transport/host-removal-lifecycle'
 import { isPageHostRemovalUnavailable } from '../transport/page-host-removal-refusal'
 import type { RpcClient } from '../transport/rpc-client'
@@ -95,6 +96,10 @@ export function useHostWorktreeActions(args: {
 
   const updateLocalPins = useCallback(
     (worktreeId: string, pinned: boolean) => {
+      // Switch point: a feed-built list keeps no pin cache of its own.
+      if (ORCA_SIDEBAR_INPUTS_IS_MAIN) {
+        return
+      }
       setPinnedIds((prev) => {
         const next = new Set(prev)
         if (pinned) {
@@ -252,7 +257,10 @@ export function useHostWorktreeActions(args: {
       if (routeHost === null) {
         return
       }
-      setOptimisticActiveWorktreeIdentity(getWorktreeRowIdentity(item))
+      // Switch point: a feed-built list highlights only what the desktop has open.
+      if (!ORCA_SIDEBAR_INPUTS_IS_MAIN) {
+        setOptimisticActiveWorktreeIdentity(getWorktreeRowIdentity(item))
+      }
       const rowClient = clientForRow(item)
       if (rowClient && connState === 'connected') {
         void worktreeActivate

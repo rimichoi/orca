@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocalSearchParams, usePathname } from 'expo-router'
 import { useRouteHandoff } from '../navigation/route-handoff'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -8,21 +8,24 @@ import { resolveHostRouteActionState } from '../host-route-action-state'
 import { useActiveWorktreeScroll } from '../hooks/use-active-worktree-scroll'
 import { useNow } from '../hooks/use-now'
 import { useResponsiveLayout } from '../layout/responsive-layout'
-import { useForgetHostClient, useForceReconnect, useHostClient } from '../transport/client-context'
+import {
+  useForgetHostClient,
+  useForceReconnect,
+  useHostClient
+} from '../transport/host-client-hooks'
 import {
   useLastConnectedAt,
   useReconnectAttempt,
   useRelayRecoveryStatus
 } from '../transport/client-context-connection-metrics'
-import { useWorkspaceSections } from '../worktree/use-workspace-sections'
-import { useHostDisplayWorktrees } from './use-host-display-worktrees'
-import { buildProjectSectionCatalog } from '../worktree/project-section-catalog'
+import { useHostDisplayWorktrees, useResolvedHostPlatform } from './use-host-display-worktrees'
+import { useHostListSections } from './use-host-list-sections'
+import { useSwitchedHostSidebarFeed } from './use-host-sidebar-feed'
 import { useHostProjectSections } from './use-host-project-sections'
 import { useHostRepoMetadata, type FetchHostRepoMetadata } from './use-host-repo-metadata'
 import { useHostScreenIdentity } from './use-host-screen-identity'
 import { useHostScreenState } from './use-host-screen-state'
 import { useHostViewSettings } from './use-host-view-settings'
-import { rowFiltersForView } from '../worktree/workspace-view-settings'
 import { countActiveWorkspaceFilters } from '../../../src/shared/workspace-view/workspace-row-filters'
 import { useHostWorktreeActions } from './use-host-worktree-actions'
 import { useHostWorktreeCatalog } from './use-host-worktree-catalog'
@@ -77,7 +80,23 @@ export function useHostScreenController({
 
   useHostScreenIdentity({ client, hostId, state })
   const fetchRepoMetadataOnly = useHostRepoMetadata({ client, connState, hostId, state })
-  const fetchProjectSections = useHostProjectSections({ client, connState, hostId, state })
+  const sidebarFeed = useSwitchedHostSidebarFeed(client)
+  // Read through a ref so the metadata refresh keeps its identity across installs.
+  const feedRef = useRef(sidebarFeed?.feed)
+  useEffect(() => {
+    feedRef.current = sidebarFeed?.feed
+  }, [sidebarFeed?.feed])
+  const feedCarriesCatalog = useCallback(
+    () => feedRef.current?.kind === 'ready' && feedRef.current.domains.projectCatalog !== null,
+    []
+  )
+  const fetchProjectSections = useHostProjectSections({
+    client,
+    connState,
+    hostId,
+    state,
+    feedCarriesCatalog
+  })
   const fetchRepoMetadata = useCallback<FetchHostRepoMetadata>(
     (options) => {
       void fetchProjectSections(options)
@@ -92,6 +111,7 @@ export function useHostScreenController({
     fetchRepoMetadata,
     hostCapabilities,
     hostId,
+    sidebarFeed: sidebarFeed?.triggers ?? null,
     state,
     syncViewSettingsFromDesktop: settings.syncViewSettingsFromDesktop
   })
@@ -115,41 +135,17 @@ export function useHostScreenController({
   }
   const showNewWorktree = resolvedRouteActionState.showNewWorktree
 
-  const displayWorktrees = useHostDisplayWorktrees(connState, state, hostId)
-  const projectCatalog = useMemo(
-    () =>
-      buildProjectSectionCatalog(
-        state.servedProjectSections,
-        state.desktopRepos,
-        state.view.filters.visibleHostIds,
-        state.view.projectOrderBy
-      ),
-    [
-      state.servedProjectSections,
-      state.desktopRepos,
-      state.view.filters.visibleHostIds,
-      state.view.projectOrderBy
-    ]
-  )
-  const collapsedGroups = useMemo(
-    () => new Set(state.view.collapsedGroups),
-    [state.view.collapsedGroups]
-  )
-  const rowFilters = useMemo(() => rowFiltersForView(state.view), [state.view])
-  const sectionsResult = useWorkspaceSections({
+  const hostPlatform = useResolvedHostPlatform(state, hostId)
+  const displayWorktrees = useHostDisplayWorktrees(connState, state, hostPlatform)
+  const feed = sidebarFeed?.feed ?? null
+  const sectionsResult = useHostListSections({
+    client,
+    feed,
     displayWorktrees,
-    sortMode: state.view.sortBy,
-    filters: rowFilters,
-    search: state.search,
-    groupMode: state.view.groupBy,
-    pinnedIds: state.pinnedIds,
-    showPinnedInGroups: state.showPinnedInGroups,
-    projectCatalog,
-    filterCatalogRepos: state.servedProjectSections?.repos ?? state.desktopRepos,
-    collapsedGroups,
-    workspaceStatuses: state.view.workspaceStatuses,
-    repoHostIdByRepoId: state.repoHostIdByRepoId
+    hostPlatform,
+    state
   })
+  const { collapsedGroups, projectOrderBy } = sectionsResult
   const { uniqueRepos } = sectionsResult
   const activeFilterCount = useMemo(
     () =>
@@ -168,8 +164,9 @@ export function useHostScreenController({
     activeWorktreeScroll,
     catalog,
     collapsedGroups,
+    feed,
     // Resolved: the desktop's value once read; the served catalog's (or the default) before.
-    projectOrderBy: projectCatalog.projectOrderBy,
+    projectOrderBy,
     client,
     connState,
     contentMaxWidth,

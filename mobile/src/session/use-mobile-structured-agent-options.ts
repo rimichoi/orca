@@ -18,6 +18,7 @@ import {
 } from '../../../src/shared/structured-agent-session-options'
 import {
   structuredAgentSessionOptionView,
+  structuredAgentSessionSendSelection,
   structuredAgentSessionShownSnapshot
 } from '../../../src/shared/structured-agent-session-option-view'
 import {
@@ -40,6 +41,8 @@ import {
 import { encodeStructuredAgentSessionOptionValue } from '../../../src/shared/structured-agent-session-option-codec'
 import { useMobileStructuredOptionSurface } from './use-mobile-structured-option-surface'
 
+const NO_COMMANDS: readonly AgentSessionConversationCommand[] = []
+
 export function useMobileStructuredAgentOptions(args: {
   agent: string | null
   client: RpcClient | null
@@ -50,10 +53,9 @@ export function useMobileStructuredAgentOptions(args: {
   /** Moves when the host's status says a session option changed; each move re-reads them. */
   optionStamp?: string
   /** What the host advertised; null until its status probe answers. */
-  hostSupport: Pick<StructuredAgentSessionHostSupport, 'sendOptions' | 'permissionModes'> | null
+  hostSupport: Pick<StructuredAgentSessionHostSupport, 'permissionModes'> | null
 }) {
   const { agent, client, enabled, fence, mutate, optionStamp, sessionId, hostSupport } = args
-  const takesSendOptions = hostSupport?.sendOptions === true
   // Every agent's seed, as on the desktop: a built-in list or the provider-default pill.
   const optionCatalog = useMemo(
     () => (agent ? structuredAgentSessionSeedCatalog(agent) : null),
@@ -150,7 +152,9 @@ export function useMobileStructuredAgentOptions(args: {
           setConversationSupport({ sessionId, commands: result.conversationCommands ?? [] })
           updateOptionState((current) =>
             current.record === activeOptionRecordRef.current
-              ? applyStructuredAgentSessionOptions(current, optionCatalog, result)
+              ? applyStructuredAgentSessionOptions(current, optionCatalog, result, {
+                  newLaunch: createdHere !== undefined
+                })
               : current
           )
         }
@@ -161,6 +165,7 @@ export function useMobileStructuredAgentOptions(args: {
     }
   }, [
     client,
+    createdHere,
     enabled,
     optionCatalog,
     optionStamp,
@@ -179,9 +184,9 @@ export function useMobileStructuredAgentOptions(args: {
     !imageSupport.statesPermissionMode &&
     optionState.permissionMode === null
   const optionSnapshot = useMemo(() => {
-    const shown = structuredAgentSessionShownSnapshot(optionState, takesSendOptions)
+    const shown = structuredAgentSessionShownSnapshot(optionState)
     return legacyHostPermissions ? [...shown, legacyHostPermissionDescriptor()] : shown
-  }, [legacyHostPermissions, optionState, takesSendOptions])
+  }, [legacyHostPermissions, optionState])
 
   const setStructuredOption = useCallback(
     async (id: string, value: SessionOptionValue): Promise<boolean> => {
@@ -194,7 +199,7 @@ export function useMobileStructuredAgentOptions(args: {
         !optionCatalog ||
         encoded === null ||
         !canSetStructuredAgentSessionOption(
-          structuredAgentSessionOptionView(currentState, undefined, {}, takesSendOptions),
+          structuredAgentSessionOptionView(currentState, undefined, {}),
           id,
           value
         )
@@ -268,7 +273,9 @@ export function useMobileStructuredAgentOptions(args: {
               if (isCurrent()) {
                 updateOptionState((latest) =>
                   latest.record === targetRecord
-                    ? applyStructuredAgentSessionOptions(latest, optionCatalog, refreshed)
+                    ? applyStructuredAgentSessionOptions(latest, optionCatalog, refreshed, {
+                        newLaunch: createdHere !== undefined
+                      })
                     : latest
                 )
               }
@@ -285,21 +292,25 @@ export function useMobileStructuredAgentOptions(args: {
         }
       }
     },
-    [agent, client, mutate, optionCatalog, sessionId, takesSendOptions, updateOptionState]
+    [agent, client, createdHere, mutate, optionCatalog, sessionId, updateOptionState]
   )
 
+  // Read, not rendered: what the chat holds when the send goes out.
+  const sendSelection = useCallback(
+    () => structuredAgentSessionSendSelection(optionStateRef.current),
+    []
+  )
   const { optionPickerRequest, invokeStructuredOption, optionSurface } =
     useMobileStructuredOptionSurface({
       optionSnapshot,
       setStructuredOption,
-      optionStateRef,
-      takesSendOptions
+      optionStateRef
     })
 
   return {
     optionPickerRequest,
     conversationCommands:
-      conversationSupport?.sessionId === sessionId ? conversationSupport.commands : [],
+      conversationSupport?.sessionId === sessionId ? conversationSupport.commands : NO_COMMANDS,
     /** The chat takes images, as its options report says; else only Claude and Codex, as before. */
     acceptsImages:
       (imageSupport?.sessionId === sessionId ? imageSupport.acceptsImages : undefined) ??
@@ -308,6 +319,7 @@ export function useMobileStructuredAgentOptions(args: {
     optionSurface,
     pendingOptionId: optionState.pendingId,
     setStructuredOption,
-    invokeStructuredOption
+    invokeStructuredOption,
+    sendSelection
   }
 }

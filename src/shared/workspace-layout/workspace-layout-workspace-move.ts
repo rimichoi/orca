@@ -10,11 +10,12 @@ import {
   type Applied
 } from './workspace-layout-command-steps'
 import type { CommandOf, LayoutContext } from './workspace-layout-command-types'
+import { sameEditorFile } from './workspace-layout-editor-tab-file'
 import type { LayoutTab, WorkspaceLayout, WorkspaceLayoutModel } from './workspace-layout-model'
 import { removeTabFromWorkspace, withWorkspace } from './workspace-layout-removal'
 import { withoutKey } from './stored-record-fields'
 
-const EDITOR_KINDS = new Set<LayoutTab['kind']>([
+export const EDITOR_KINDS: ReadonlySet<LayoutTab['kind']> = new Set<LayoutTab['kind']>([
   'editor',
   'diff',
   'conflict-review',
@@ -82,6 +83,7 @@ export function moveTabToWorkspace(
     const end = target.groups.find((group) => group.id === command.groupId)!.tabOrder.length
     target = placeNewTab(
       target,
+      toKey,
       { ...tab, id: newTabId, entityId: newEntityId },
       { groupId: command.groupId, index: end },
       context
@@ -104,7 +106,7 @@ function moveEditorFile(
   file: NonNullable<CommandOf<'moveTabToWorkspace'>['file']>
 ): { source: WorkspaceLayout; target: WorkspaceLayout } {
   const others = (files: WorkspaceLayout['editorFiles']) =>
-    files?.filter((entry) => entry.filePath !== file.filePath)
+    files?.filter((entry) => !sameEditorFile(entry, file))
   const sourceFiles = others(source.editorFiles)
   return {
     source: sourceFiles ? { ...source, editorFiles: sourceFiles } : source,

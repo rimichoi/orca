@@ -1,13 +1,15 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import type * as JcodeRuntimeDir from '../../shared/jcode-runtime-dir'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import { getHiddenRendererPtyIds, isHiddenRendererPty } from './pty-hidden-delivery-gate'
 import { ptySizes } from './pty/delivery/visibility-state'
 import { clearProviderPtyState } from './pty/provider/state-cleanup'
+import * as paneSpawnReservations from './pty/pane/spawn-reservation'
 import { WORKTREE_TERMINALS_SLEEPING_ERROR } from '../runtime/worktree-terminals-sleeping-error'
+import { RestoredPaneStarter } from '../runtime/terminal/recovery/restored-pane-start'
 import {
   LAUNCH_RACE_LANES,
   createLaunchRaceRuntime,
-  flushMacrotasks,
   gatedClaudeAuth,
   launchRacePane,
   registerLaunchRaceLanes,
@@ -58,6 +60,14 @@ vi.mock('../codex/codex-pane-account-registry', () =>
 vi.mock('../codex/codex-state-db-backfill-recovery', () =>
   import('./pty-ipc-mock-registry').then((m) => m.codexBackfillRecoveryModuleMock())
 )
+// Why: the host lane's real mkdir is thread-pool I/O, so a joiner could miss flushMacrotasks' turns under load.
+vi.mock('../../shared/jcode-runtime-dir', async (importOriginal) => {
+  const actual = await importOriginal<typeof JcodeRuntimeDir>()
+  return {
+    ...actual,
+    ensureJcodeRuntimeDir: async (paneKey: string) => actual.buildJcodeRuntimeDirEnv(paneKey)
+  }
+})
 
 const mintedFor = (worktreeId: string): string[] =>
   getHiddenRendererPtyIds().filter((id) => id.startsWith(`${worktreeId}@@`))
@@ -78,12 +88,16 @@ describe('launch race parity, both spawn lanes', () => {
       async (lane) => {
         const pane = launchRacePane(`race-join-${lane}`, '72727272-7272-4272-8272-727272727272')
         let finishSpawn!: () => void
-        const spawn = vi.fn(
-          () =>
-            new Promise((resolve) => {
-              finishSpawn = () => resolve({ id: 'pty-join-winner' })
-            })
-        )
+        const spawn = vi
+          .fn()
+          .mockImplementationOnce(
+            () =>
+              new Promise((resolve) => {
+                finishSpawn = () => resolve({ id: 'pty-join-winner' })
+              })
+          )
+          // A joiner that missed the join fails here instead of hanging on a spawn nobody finishes.
+          .mockRejectedValue(new Error('joiner_spawned_its_own_pty'))
         installDaemonTestProvider({ spawn })
         const auth = gatedClaudeAuth()
         auth.release()
@@ -96,8 +110,13 @@ describe('launch race parity, both spawn lanes', () => {
 
         const winner = lanes.spawn.ipc(pane.args)
         await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce())
+        const joinPaneSpawn = vi.spyOn(paneSpawnReservations, 'joinPaneSpawn')
+        onTestFinished(() => joinPaneSpawn.mockRestore())
         const joiner = lanes.spawn[lane]({ ...pane.args, command: 'claude' })
-        await flushMacrotasks()
+        if (lane === 'runtime') {
+          // Runtime preflight does filesystem work before it can join the reserved pane.
+          await vi.waitFor(() => expect(joinPaneSpawn).toHaveBeenCalledOnce())
+        }
         finishSpawn()
 
         await expect(winner).resolves.toMatchObject({ id: 'pty-join-winner' })
@@ -128,8 +147,10 @@ describe('launch race parity, both spawn lanes', () => {
 
       const automatic = lanes.spawn.runtime({ ...pane.args, refuseSleptWorktree: true })
       await vi.waitFor(() => expect(lock.acquireWorktreeTerminalSpawn).toHaveBeenCalledOnce())
+      const joinPaneSpawn = vi.spyOn(paneSpawnReservations, 'joinPaneSpawn')
+      onTestFinished(() => joinPaneSpawn.mockRestore())
       const joiner = lanes.spawn.runtime(pane.args)
-      await flushMacrotasks()
+      await vi.waitFor(() => expect(joinPaneSpawn).toHaveBeenCalledOnce())
       refused = true
       lock.refuse()
 
@@ -166,6 +187,54 @@ describe('launch race parity, both spawn lanes', () => {
       await expect(mount).resolves.toMatchObject({ id: 'pty-user-mount' })
       expect(spawn).toHaveBeenCalledOnce()
     })
+  })
+
+  // C1b: a desktop window's restore, a phone's first view and a CLI send of one restored pane.
+  it('starts a restored pane once for a window restore, a client first view and a CLI send', async () => {
+    const pane = launchRacePane('race-three-starters', '73737373-7373-4373-8373-737373737373')
+    let finishSpawn!: () => void
+    const spawn = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishSpawn = () => resolve({ id: 'pty-restored' })
+          })
+      )
+      .mockRejectedValue(new Error('second_terminal_started'))
+    installDaemonTestProvider({ spawn })
+    const lanes = registerLaunchRaceLanes({
+      handlers,
+      mainWindow,
+      runtime: createLaunchRaceRuntime()
+    })
+    // The pane main holds: bound to the terminal that binds it, live once registered.
+    let bound: string | undefined
+    const window = lanes.spawn.ipc(pane.args).then((reply) => {
+      bound = reply.id
+      return reply
+    })
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce())
+    const joinPaneSpawn = vi.spyOn(paneSpawnReservations, 'joinPaneSpawn')
+    onTestFinished(() => joinPaneSpawn.mockRestore())
+    const starter = new RestoredPaneStarter({
+      boundPtyId: () => bound,
+      isLive: (ptyId) => ptyId === bound,
+      start: async () => (await lanes.spawn.runtime(pane.args)).id
+    })
+    const restored = { worktreeId: pane.worktreeId, tabId: pane.tabId, leafId: pane.leafId }
+    const firstView = starter.ensureStarted(restored)
+    const cliSend = starter.ensureStarted(restored)
+    await vi.waitFor(() => expect(joinPaneSpawn).toHaveBeenCalled())
+    finishSpawn()
+
+    await expect(window).resolves.toMatchObject({ id: 'pty-restored' })
+    await expect(Promise.all([firstView, cliSend])).resolves.toEqual([
+      'pty-restored',
+      'pty-restored'
+    ])
+    expect(spawn).toHaveBeenCalledOnce()
+    expect(mintedFor(pane.worktreeId)).toEqual([])
   })
 
   describe('cleanup when a start fails', () => {

@@ -97,6 +97,14 @@ export async function acquireClaudeSession({
       // running; set_model answers success for a model it never resolves, so this
       // report is the session's only adoption evidence.
       if (liveSession && init.model) {
+        if (liveSession.reusableOptions.get('model') !== init.model) {
+          liveSession.reusableOptions.delete('model')
+          liveSession.reusableOptions.delete('effort')
+          liveSession.reusableOptions.delete('fastMode')
+        }
+        if (liveSession.optionMutationSequence === 0) {
+          liveSession.reusableOptions.set('model', init.model)
+        }
         liveSession.reportedOptions.model = init.model
         liveSession.reportedModelMutation = liveSession.optionMutationSequence
       }
@@ -189,7 +197,6 @@ export async function acquireClaudeSession({
           onMessage,
           canUseTool,
           onUserDialog,
-          ...(input.onOutput ? { onOutput: input.onOutput } : {}),
           onFault: (error) => {
             childEnded ??= error
             initProof.reject(error)
@@ -242,6 +249,7 @@ export async function acquireClaudeSession({
       turnEndLeafUuid: launch.resumeLeafUuid,
       fence: input.fence,
       continuesChain: launch.continuesChain,
+      ...(launch.forkedFromKey ? { forkedFromKey: launch.forkedFromKey } : {}),
       prompts,
       translator,
       events: input.events,
@@ -277,7 +285,7 @@ export async function acquireClaudeSession({
       )
     }
     // The host calls open after publication and holds input until it settles.
-    return { ...publication.acquisition, providerChildPhase: 'starting' }
+    return publication.acquisition
   } catch (error) {
     unbindReadingControl?.()
     const acquisitionError = await resolveClaudeAcquisitionError({
@@ -286,9 +294,9 @@ export async function acquireClaudeSession({
       sessions,
       attempt,
       translator,
-      prompts
+      prompts,
+      releaseAcquisition: () => acquisitions.deleteIfCurrent(sessionId, attempt)
     })
-    acquisitions.deleteIfCurrent(sessionId, attempt)
     throw acquisitionError
   } finally {
     attempt.finish()

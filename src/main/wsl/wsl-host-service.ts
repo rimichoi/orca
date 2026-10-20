@@ -44,6 +44,8 @@ export type WslHostConnector = {
   /** User-initiated; may boot the distro. `force` takes an update live terminals deferred. */
   connect(distro: string, options?: { force?: boolean }): Promise<WslOrcadConnection>
   get(distro: string): WslOrcadConnection | null
+  /** Checks the paired server without starting a stopped or unconfirmed distro. */
+  isReachable(distro: string, environmentId: string): Promise<boolean>
   disconnect(distro: string): Promise<void>
   /** Ends the host's terminals, orcad and its terminal daemon; never boots a stopped distro. */
   stopServer(distro: string, environmentId: string): Promise<WslHostServerStop>
@@ -139,19 +141,23 @@ export class WslHostService {
     }
     // First: nothing may reconnect it while it is being stopped (open work, liveness, calls).
     this.removing.add(environmentId)
-    this.visible.delete(environmentId)
     const connector = this.connector
     let serverStop: WslHostServerStop = { stopped: true }
-    if (connector) {
-      serverStop = await connector
-        .stopServer(record.distro, environmentId)
-        .catch((error: unknown) => ({ stopped: false, reason: errorMessage(error) }))
-      await connector.disconnect(record.distro)
-      // Without its holder the distro idles out.
-      await connector.releaseHolder(record.distro)
+    try {
+      if (connector) {
+        serverStop = await connector
+          .stopServer(record.distro, environmentId)
+          .catch((error: unknown) => ({ stopped: false, reason: errorMessage(error) }))
+        await connector.disconnect(record.distro)
+        // Without its holder the distro idles out.
+        await connector.releaseHolder(record.distro)
+      }
+      removeWslHostEnvironment(this.deps.userDataPath(), environmentId)
+      this.visible.delete(environmentId)
+    } finally {
+      // Why: a failed removal (e.g. EBUSY on Windows) must leave the host usable and removable.
+      this.removing.delete(environmentId)
     }
-    removeWslHostEnvironment(this.deps.userDataPath(), environmentId)
-    this.removing.delete(environmentId)
     this.statuses.delete(environmentId)
     await this.deps.removed(environmentId)
     return serverStop
@@ -197,7 +203,8 @@ export class WslHostService {
    */
   async ensureForRuntimeCall(environmentId: string): Promise<void> {
     const record = this.recordForEnvironment(environmentId)
-    if (!record || !this.connector || this.connector.get(record.distro)) {
+    const connector = this.connector
+    if (!record || !connector || (await connector.isReachable(record.distro, environmentId))) {
       return
     }
     const refusal = wslHostRunRefusal(this.deps)
@@ -207,7 +214,7 @@ export class WslHostService {
     if (!this.visible.has(environmentId)) {
       throw new Error(wslHostNotConnectedMessage(record.distro))
     }
-    await this.connector.connect(record.distro)
+    await connector.connect(record.distro)
   }
 
   /** Whether anything may still be started for this distro (spawn guard). */
@@ -221,12 +228,9 @@ export class WslHostService {
       return
     }
     for (const environmentId of this.visible) {
-      if (previous.has(environmentId)) {
-        continue
-      }
-      const record = this.recordForEnvironment(environmentId)
-      if (record && !this.connector.get(record.distro)) {
-        this.connector.connect(record.distro).catch((error: unknown) => {
+      const record = !previous.has(environmentId) && this.recordForEnvironment(environmentId)
+      if (record) {
+        this.ensureForRuntimeCall(environmentId).catch((error: unknown) => {
           console.warn(`[wsl-hosts] Could not connect to ${record.distro}:`, error)
         })
       }
@@ -236,7 +240,8 @@ export class WslHostService {
   hasUserVisibleWork(distro: string): boolean {
     const record = this.recordForDistro(distro)
     // Why the gate: liveness relaunches only for visible work, and none may run while off.
-    return record ? this.canRun() && this.visible.has(record.environmentId) : false
+    const id = record?.environmentId
+    return id ? this.canRun() && this.visible.has(id) && !this.removing.has(id) : false
   }
 
   /** Startup: keep the holders a previous run left, without booting anything. */

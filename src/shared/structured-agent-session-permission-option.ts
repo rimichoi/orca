@@ -8,7 +8,7 @@ import {
   type AgentChatPermissionMode
 } from './agent-chat-permission-mode'
 import type { AgentSessionOptionCatalog } from './agent-session-option-catalog'
-import type { NativeChatSessionOptionRecord } from './native-chat-session-option-state'
+import type { StructuredAgentSessionOptionRecord } from './structured-agent-session-option-state'
 import type { SessionOptionDescriptor } from './native-chat-session-options'
 
 /** English names and descriptions for surfaces without a translation catalog. */
@@ -39,16 +39,27 @@ const OTHER_AGENT_DESCRIPTIONS: Partial<Record<AgentChatPermissionMode, string>>
   ask: "Asks before edits or commands it isn't already allowed to make"
 }
 
+const ANTIGRAVITY_DESCRIPTIONS: Partial<Record<AgentChatPermissionMode, string>> = {
+  ...OTHER_AGENT_DESCRIPTIONS,
+  'accept-edits': 'Approves file edits; asks for the rest'
+}
+
+const AGENT_DESCRIPTIONS = new Map<string, Partial<Record<AgentChatPermissionMode, string>>>([
+  ['codex', CODEX_DESCRIPTIONS],
+  ['claude', {}],
+  ['antigravity', ANTIGRAVITY_DESCRIPTIONS]
+])
+
 function agentDescriptions(agent: string): Partial<Record<AgentChatPermissionMode, string>> {
-  return agent === 'codex' ? CODEX_DESCRIPTIONS : agent === 'claude' ? {} : OTHER_AGENT_DESCRIPTIONS
+  return AGENT_DESCRIPTIONS.get(agent) ?? OTHER_AGENT_DESCRIPTIONS
 }
 
 /** Only decides whether the menu offers Approve for me, by the host's own rule. */
 function currentModelSupportsAutoMode(
   catalog: AgentSessionOptionCatalog | null,
-  record: NativeChatSessionOptionRecord
+  record: StructuredAgentSessionOptionRecord
 ): boolean {
-  const model = record.model?.value
+  const model = record.values.model?.value
   return (
     catalog !== null &&
     chatModelSupportsAutoMode(catalog.models, typeof model === 'string' ? model : undefined)
@@ -57,7 +68,7 @@ function currentModelSupportsAutoMode(
 
 export function structuredAgentSessionPermissionDescriptor(state: {
   catalog: AgentSessionOptionCatalog | null
-  record: NativeChatSessionOptionRecord
+  record: StructuredAgentSessionOptionRecord
   permissionMode: string | null
 }): SessionOptionDescriptor | null {
   const support = agentChatPermissionModes(state.record.agent)

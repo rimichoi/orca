@@ -1,9 +1,10 @@
 import { worktreeWorkspaceKey } from '../../../../../../shared/workspace-scope'
+import { forgetCombinedDiffViewsForWorktrees } from '@/components/editor/combined-diff/remember-view/combined-diff-view-cache'
 import type { ExecutionHostId } from '../../../../../../shared/execution-host'
 import type { WorktreeSliceSet } from '../listing/worktree-slice-types'
 import { removeDeleteStatesForWorktreeIds } from './worktree-delete-state'
 import { removeWorktreeVisitEntries } from '@/lib/worktree-visit-recency'
-import { forgetAmbiguousOwnerWarnings } from '../listing/worktree-owner-settings'
+import { forgetAmbiguousOwnerWarnings } from '@/lib/ambiguous-owner-warning'
 import { omitRecordKeys } from './record-key-omission'
 import { removeWorktreeLayout } from '../../tabs/worktree-layout-lifecycle'
 import { omitSleepingAgentSessionsForWorktrees } from './sleeping-agent-session-omission'
@@ -18,6 +19,7 @@ export function applyRemoveWorktreeSuccessState(
   // Why outside `set`: it is module-scope, not store state. Dropping it also
   // re-arms the once-per-workspace warning if this id is ever added back.
   forgetAmbiguousOwnerWarnings([worktreeId])
+  forgetCombinedDiffViewsForWorktrees([worktreeId])
   set((s) => {
     const worktreeIds = [worktreeId]
     const omitByWorktree = <T>(m: Record<string, T> | undefined) => omitRecordKeys(m, worktreeIds)

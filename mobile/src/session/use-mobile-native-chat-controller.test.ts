@@ -175,7 +175,8 @@ const ORIGIN = {
   normalizedText: 'look',
   baselineOccurrences: 0,
   baselineTailMessageId: null,
-  baselineResolved: true
+  baselineResolved: true,
+  sentAt: 0
 }
 
 /** Harness props for a structured chat tab running `agent`. */

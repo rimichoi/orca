@@ -36,14 +36,26 @@ export function orcadDataRootIsOnLocalDisk(
     return !/^[\\/]{2}/u.test(dataRoot) || /^[\\/]{2}[?.][\\/][a-z]:/iu.test(dataRoot)
   }
   try {
-    const type = statfsSync(dataRoot).type
-    if (platform === 'linux') {
-      return LINUX_LOCAL_FILESYSTEM_MAGICS.has(type)
-    }
-    // macOS numbers filesystem types as their drivers load, so compare against the boot volume's,
-    // which is always a local disk; network filesystems never share its type.
-    return platform === 'darwin' && type === statfsSync('/').type
+    return filesystemTypeIsLocalDisk(
+      platform,
+      statfsSync(dataRoot).type,
+      () => statfsSync('/').type
+    )
   } catch {
     return false
   }
+}
+
+/** Classifies a `statfs` f_type; also used for types a remote host reports. */
+export function filesystemTypeIsLocalDisk(
+  platform: string,
+  type: number,
+  rootType: () => number | null
+): boolean {
+  if (platform === 'linux') {
+    return LINUX_LOCAL_FILESYSTEM_MAGICS.has(type)
+  }
+  // macOS numbers filesystem types as their drivers load, so compare against the boot volume's,
+  // which is always a local disk; network filesystems never share its type.
+  return platform === 'darwin' && type === rootType()
 }

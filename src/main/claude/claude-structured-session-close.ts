@@ -43,6 +43,7 @@ export function claudeAcquisitionCleanupError(
     : new AgentSessionAcquisitionExitUnprovenError(cause)
 }
 
+/** An unproven exit keeps the acquisition so a later stop can still prove its root gone. */
 export async function resolveClaudeAcquisitionError(input: {
   error: unknown
   sessionId: string
@@ -50,6 +51,7 @@ export async function resolveClaudeAcquisitionError(input: {
   attempt: ClaudeAcquisitionAttempt
   translator: ClaudeJournalTranslator | null
   prompts: ClaudePromptRegistry
+  releaseAcquisition: () => void
 }): Promise<unknown> {
   let acquisitionError = input.error
   if (input.sessions.get(input.sessionId)?.connection !== input.attempt.connection) {
@@ -63,6 +65,9 @@ export async function resolveClaudeAcquisitionError(input: {
     } else if (!closed) {
       acquisitionError = claudeAcquisitionCleanupError(input.attempt.connection, input.error)
     }
+  }
+  if (!(acquisitionError instanceof AgentSessionAcquisitionExitUnprovenError)) {
+    input.releaseAcquisition()
   }
   return acquisitionError
 }
@@ -283,6 +288,10 @@ export async function closeClaudeSession(input: {
     )
     // Why: cancellation must preserve the same actionable verdict as published-session close.
     if (!(cleanupError instanceof AgentSessionAcquisitionExitUnprovenError)) {
+      // A proved-dead attempt cannot remain the owner blocking the next start.
+      if (attempt) {
+        input.acquisitions.deleteIfCurrent(input.sessionId, attempt)
+      }
       throw cleanupError
     }
     return false

@@ -258,7 +258,11 @@ export abstract class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal ext
           isPinned: candidate.isPinned === true
         }))
         group.tabOrder = insertTabIdIntoOrder(
-          group.tabOrder, topLevelTabs, parentTabId, tab.isPinned === true, opts.afterDesktopTabId
+          group.tabOrder,
+          topLevelTabs,
+          parentTabId,
+          tab.isPinned === true,
+          opts.afterDesktopTabId
         )
       }
     }

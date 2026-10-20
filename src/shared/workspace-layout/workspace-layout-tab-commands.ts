@@ -1,7 +1,9 @@
+import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../layout-owner-switch'
 import { filterRecord, omitStoredFields, withoutKey } from './stored-record-fields'
 import { canReplacePreviewContentType, partitionPinnedTabOrder } from './tab-order'
 import { getNextTerminalOrdinal } from './terminal-tab-ordinal'
 import { layoutContainsLeafId } from './terminal-pane-tree'
+import { editorTabShowsFile, keptAfterEditorClose } from './workspace-layout-editor-tab-file'
 import {
   applied,
   boundPtyIds,
@@ -24,11 +26,13 @@ import {
   paneKeyOf,
   type LayoutClosedTab,
   type LayoutContentTab,
+  type LayoutTab,
   type LayoutTerminalTab,
   type WorkspaceLayout,
   type WorkspaceLayoutModel
 } from './workspace-layout-model'
 import { admitsInitialSurface } from './workspace-layout-initial-surface'
+import { adoptedLeaf, appliedHeldAdoption } from './workspace-layout-terminal-adoption'
 import { removeTabFromWorkspace, withWorkspace } from './workspace-layout-removal'
 
 type RefusedClose = NonNullable<LayoutCommandResult['refused']>[number]
@@ -41,6 +45,10 @@ export function createTerminalTab(
   if (command.initial && !admitsInitialSurface(model, command.workspace, command.initial)) {
     return applied(model)
   }
+  const held = command.adopt && appliedHeldAdoption(model, command.workspace, command.adopt)
+  if (held) {
+    return held
+  }
   const workspace = workspaceOrEmpty(model, command.workspace)
   const terminals = workspace.tabs.flatMap((tab) => (tab.kind === 'terminal' ? [tab] : []))
   const ordinal = getNextTerminalOrdinal(
@@ -51,16 +59,23 @@ export function createTerminalTab(
   const tab: LayoutTerminalTab = {
     id,
     entityId: id,
-    createdAt: context.now(),
+    createdAt: command.createdAt ?? context.now(),
     customTitle: command.title ?? null,
     color: command.color ?? null,
+    ...(command.quickCommandLabel ? { quickCommandLabel: command.quickCommandLabel } : {}),
     ...(command.viewMode ? { viewMode: command.viewMode } : {}),
     kind: 'terminal',
     terminal: { defaultTitle: `Terminal ${ordinal}`, ...command.creation },
     panes: { root: { type: 'leaf', leafId } }
   }
-  const placed = placeNewTab(workspace, tab, command, context)
+  const placed = placeNewTab(workspace, command.workspace, tab, command, context)
   const paneKey = paneKeyOf(id, leafId)
+  if (command.adopt) {
+    // Its terminal already runs: the pane binds to it and nothing starts.
+    const leaves = { ...placed.leaves, [leafId]: adoptedLeaf(command.adopt) }
+    const adopted = withWorkspace(model, command.workspace, { ...placed, leaves })
+    return applied(adopted, { tabId: id, leafId, paneKey })
+  }
   return applied(
     withWorkspace(model, command.workspace, placed),
     { tabId: id, leafId, paneKey },
@@ -88,7 +103,12 @@ export function closeTab(
   ) {
     next = {
       ...next,
-      editorFiles: next.editorFiles.filter((file) => file.filePath !== tab.entityId)
+      editorFiles: next.editorFiles.filter(
+        // Why the switch: shipped builds close through this code too.
+        ORCA_LAYOUT_OWNER_IS_MAIN
+          ? keptAfterEditorClose(workspace, next, tab.entityId)
+          : (file) => !editorTabShowsFile(tab.entityId, file, next.worktreeId)
+      )
     }
   }
   if (next.editorViews) {
@@ -181,12 +201,18 @@ export function setTabProps(
   if (!tab) {
     return refuse('tab_not_found')
   }
-  const next = {
-    ...tab,
+  if (command.clearLaunchAgent && tab.kind !== 'terminal') {
+    return refuse('invalid_params')
+  }
+  const props = {
     ...(command.color !== undefined ? { color: command.color } : {}),
     ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
     ...(command.viewMode !== undefined ? { viewMode: command.viewMode } : {})
   }
+  const next: LayoutTab =
+    command.clearLaunchAgent && tab.kind === 'terminal'
+      ? { ...tab, ...props, terminal: omitStoredFields(tab.terminal, ['launchAgent']) }
+      : { ...tab, ...props }
   let updated = {
     ...workspace,
     tabs: workspace.tabs.map((entry) => (entry.id === tab.id ? next : entry))
@@ -268,8 +294,14 @@ export function placeContentTab(
     key,
     placeNewTab(
       workspace,
+      key,
       tab,
-      { groupId: group?.id, afterTabId: placement.afterTabId, index: placement.index },
+      // The sender's group names a workspace's first group.
+      {
+        groupId: group?.id ?? placement.groupId,
+        afterTabId: placement.afterTabId,
+        index: placement.index
+      },
       context
     )
   )

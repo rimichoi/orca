@@ -70,7 +70,9 @@ export async function executeAgentLaunch(
           : {}),
         ...(execution.callerRendersStructured === false ? { callerRendersStructured: false } : {})
       },
-      settings: readAgentLaunchModeSettings(runtime, intent.nativeChatDefault),
+      settings: execution.terminalOnly
+        ? undefined
+        : readAgentLaunchModeSettings(runtime, intent.nativeChatDefault),
       ...(execution.terminalOnly ? { terminalOnly: true } : {}),
       vocabulary
     })
@@ -285,7 +287,8 @@ async function createSurface(
       agent: intent.agent,
       ...(intent.sessionOptions ? { options: intent.sessionOptions } : {}),
       ...(intent.sessionId ? { sessionId: intent.sessionId } : {}),
-      ...(reservedTabId ? { tabId: reservedTabId } : {})
+      ...(reservedTabId ? { tabId: reservedTabId } : {}),
+      ...(intent.prompt ? {} : { withoutPrompt: true as const })
     })
     return {
       outcome: {

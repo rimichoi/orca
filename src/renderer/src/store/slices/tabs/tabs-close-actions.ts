@@ -25,6 +25,8 @@ import { removeTabsAttention } from '../workspace-attention/subject-attention-tr
 import { settleAttentionRemovedBy } from '../workspace-attention/attention-removal-follow-up'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../../shared/layout-owner-switch'
 import { recordClosedEditorTabInLayoutOwner } from '../editor/tabs/editor-tab-layout-owner'
+import { recordClosedAgentSessionTabInLayoutOwner } from '@/runtime/agent-session-tab-layout-owner'
+import { recordClosedSimulatorTabInLayoutOwner } from '@/lib/simulator-tab-layout-owner'
 
 export function createTabsCloseActions(
   set: TabsSliceSet,
@@ -72,7 +74,8 @@ export function createTabsCloseActions(
             target,
             worktreeId,
             sessionId: tab.entityId,
-            provisional
+            provisional,
+            layoutOwner: state
           })
         } else {
           // Closing still removes the tab; no host can be named to stop its chat on.
@@ -86,7 +89,12 @@ export function createTabsCloseActions(
         group?.activeTabId === tabId
           ? wasLastTab
             ? null
-            : pickNextActiveTab(dedupedGroupOrder, group.recentTabIds, tabId)
+            : pickNextActiveTab(
+                dedupedGroupOrder,
+                group.recentTabIds,
+                tabId,
+                state.unifiedTabsByWorktree[worktreeId]
+              )
           : (group?.activeTabId ?? null)
       const nextRecentTabIds = sanitizeRecentTabIds(
         (group?.recentTabIds ?? []).filter((id) => id !== tabId),
@@ -207,9 +215,11 @@ export function createTabsCloseActions(
           }
         })
       )
-      // Switch point: main records an editor tab the window just closed.
+      // Switch point: main records an editor, chat or simulator tab the window just closed.
       if (ORCA_LAYOUT_OWNER_IS_MAIN) {
         recordClosedEditorTabInLayoutOwner(get(), tab)
+        recordClosedAgentSessionTabInLayoutOwner(get(), tab)
+        recordClosedSimulatorTabInLayoutOwner(get(), tab)
       }
 
       if (opts?.recordInteraction !== false) {

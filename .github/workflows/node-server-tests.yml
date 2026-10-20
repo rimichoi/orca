@@ -14,7 +14,7 @@ on:
       - 'pnpm-workspace.yaml'
       - 'tsconfig.json'
       - '.npmrc'
-      - '.pnpmfile.cjs'
+      - 'config/pnpmfile.cjs'
       - '.github/actions/install-node-dependencies/**'
       - '.github/actions/restore-pnpm-verification/**'
       - '.github/actions/prepare-headless-compiler/**'
@@ -128,7 +128,7 @@ jobs:
           fi
 
   persistence:
-    needs: changes
+    needs: [changes, mobile_web_bundle]
     concurrency:
       group: node-server-persistence-${{ matrix.os }}-${{ github.event_name == 'push' && !inputs.build_template && inputs.ref == '' && github.ref || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'push' && !inputs.build_template && inputs.ref == '' }}
@@ -136,6 +136,7 @@ jobs:
     # Drafts re-trigger at readiness; inherited caller events must not depend on PR fields.
     if: >-
       ${{ !cancelled() && needs.changes.outputs.should_run != 'false' &&
+      (needs.changes.outputs.qualification == 'false' || needs.mobile_web_bundle.result == 'success') &&
       (github.event_name != 'pull_request' || github.event.pull_request.draft != true) }}
     strategy:
       fail-fast: false
@@ -154,7 +155,8 @@ jobs:
         id: dependencies
         with:
           native-runtime: ${{ runner.os == 'Windows' && 'node' || 'none' }}
-          cache-pnpm-store: ${{ runner.os != 'Windows' }}
+          # Template qualification must not wait for large download-cache uploads.
+          cache-pnpm-store: ${{ !inputs.build_template && runner.os != 'Windows' }}
           cache-pnpm-store-lookup-only: 'true'
       # Design D7 upgrade and rollback: the last Bun orcad, built from a main commit that shipped
       # it, using the current Bun pin beside this checkout's Node slot; hand-over skips once PROTOCOL_VERSION
@@ -191,9 +193,17 @@ jobs:
         if: runner.os == 'Windows'
         with:
           arches: ${{ (inputs.build_template && matrix.os == 'windows-2022') && 'x64 arm64' || (runner.arch == 'ARM64' && 'arm64' || 'x64') }}
+      - uses: actions/download-artifact@v8
+        if: needs.changes.outputs.qualification != 'false'
+        with:
+          name: orcad-mobile-web-bundle
+          path: out/mobile-web
+      # Narrow test-only runs skip the shared producer but still need a page.
+      - uses: ./.github/actions/build-mobile-web-bundle
+        if: needs.changes.outputs.qualification == 'false'
       - run: pnpm build:orcad
         env:
-          ORCA_REUSE_PREPARED_WINDOWS_SECURITY: ${{ github.event_name == 'pull_request' && runner.os == 'Windows' && steps.dependencies.outcome == 'success' }}
+          ORCA_REUSE_PREPARED_WINDOWS_SECURITY: ${{ runner.os == 'Windows' && steps.dependencies.outcome == 'success' }}
       - wait: bun-orcad
       - run: pnpm test:node-server --artifact ${{ runner.os == 'Linux' && '--cross-runtime' || '' }}
         env:
@@ -297,14 +307,39 @@ jobs:
           # A rerun attempt re-uploads under the same name, which v4 otherwise refuses.
           overwrite: true
 
+  # Every qualification lane tests the same platform-independent page.
+  mobile_web_bundle:
+    needs: changes
+    if: >-
+      ${{ !cancelled() && needs.changes.outputs.should_run != 'false' &&
+      needs.changes.outputs.qualification != 'false' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft != true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: ./.github/actions/install-node-dependencies
+      - uses: ./.github/actions/build-mobile-web-bundle
+      - uses: actions/upload-artifact@v7
+        with:
+          name: orcad-mobile-web-bundle
+          path: out/mobile-web/
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
   linux_glibc_floor:
-    needs: [changes, persistence]
+    needs: [changes, mobile_web_bundle]
     concurrency:
       group: node-server-linux_glibc_floor-${{ matrix.os }}-${{ github.event_name == 'push' && !inputs.build_template && inputs.ref == '' && github.ref || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'push' && !inputs.build_template && inputs.ref == '' }}
-    # A failed smoke already blocks qualification; missing scope still selects every platform.
+    # Each Linux lane owns its inputs; the template still requires every lane to pass.
     if: >-
-      ${{ !cancelled() && needs.persistence.result == 'success' &&
+      ${{ !cancelled() &&
+      needs.mobile_web_bundle.result == 'success' &&
       needs.changes.outputs.should_run != 'false' &&
       needs.changes.outputs.qualification != 'false' }}
     strategy:
@@ -353,6 +388,10 @@ jobs:
           pnpm build:orcad-prebuilds
           pnpm build:orcad-prebuilds --require-slots "$(node config/scripts/build-orcad-prebuilds.mjs --print-slot)"
           pnpm build:orcad-prebuilds --smoke
+      - uses: actions/download-artifact@v8
+        with:
+          name: orcad-mobile-web-bundle
+          path: out/mobile-web
       - run: pnpm build:orcad
       - run: pnpm test:node-server --artifact
       - name: Keep this runner's glibc 2.28 slot for the desktop template
@@ -366,15 +405,15 @@ jobs:
           overwrite: true
 
   linux_glibc217_compat:
-    needs: [changes, persistence]
+    needs: changes
     concurrency:
       group: node-server-linux_glibc217_compat-${{ github.event_name == 'push' && !inputs.build_template && inputs.ref == '' && github.ref || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'push' && !inputs.build_template && inputs.ref == '' }}
-    # A failed smoke already blocks qualification; missing scope still selects every platform.
     if: >-
-      ${{ !cancelled() && needs.persistence.result == 'success' &&
+      ${{ !cancelled() &&
       needs.changes.outputs.should_run != 'false' &&
       needs.changes.outputs.qualification != 'false' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft != true) &&
       (github.event_name != 'pull_request' || inputs.build_template || inputs.ref != '' ||
       needs.changes.outputs.native_compatibility != 'false') }}
     runs-on: ubuntu-22.04
@@ -423,13 +462,13 @@ jobs:
           overwrite: true
 
   linux_musl:
-    needs: [changes, persistence]
+    needs: [changes, mobile_web_bundle]
     concurrency:
       group: node-server-linux_musl-${{ matrix.os }}-${{ github.event_name == 'push' && !inputs.build_template && inputs.ref == '' && github.ref || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'push' && !inputs.build_template && inputs.ref == '' }}
-    # A failed smoke already blocks qualification; missing scope still selects every platform.
     if: >-
-      ${{ !cancelled() && needs.persistence.result == 'success' &&
+      ${{ !cancelled() &&
+      needs.mobile_web_bundle.result == 'success' &&
       needs.changes.outputs.should_run != 'false' &&
       needs.changes.outputs.qualification != 'false' }}
     strategy:
@@ -449,6 +488,10 @@ jobs:
         id: pnpm-verification
         with:
           container-toolchain: 'true'
+      - uses: actions/download-artifact@v8
+        with:
+          name: orcad-mobile-web-bundle
+          path: out/mobile-web
       - name: Verify native Alpine artifact and persistence
         env:
           VERIFICATION_CACHE_PATH: ${{ steps.pnpm-verification.outputs.path }}
@@ -483,10 +526,11 @@ jobs:
 
   # Design D2: the desktop ships every target's addons, merged from the lanes that qualified them.
   desktop_template:
-    needs: [persistence, linux_glibc_floor, linux_glibc217_compat, linux_musl]
+    needs: [persistence, mobile_web_bundle, linux_glibc_floor, linux_glibc217_compat, linux_musl]
     if: >-
       ${{ !cancelled() && inputs.build_template &&
-      needs.persistence.result == 'success' && needs.linux_glibc_floor.result == 'success' &&
+      needs.persistence.result == 'success' && needs.mobile_web_bundle.result == 'success' &&
+      needs.linux_glibc_floor.result == 'success' &&
       needs.linux_glibc217_compat.result == 'success' && needs.linux_musl.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -523,6 +567,11 @@ jobs:
           node config/scripts/merge-orcad-prebuilds.mjs "$RUNNER_TEMP"/orcad-prebuild-lanes/*
           pnpm build:orcad-prebuilds --require-slots
           pnpm build:orcad-prebuilds --require-slots linux-x64-glibc217
+      # The page the qualification lanes tested, not a rebuild.
+      - uses: actions/download-artifact@v8
+        with:
+          name: orcad-mobile-web-bundle
+          path: out/mobile-web
       - run: pnpm build:orcad-template
       - name: Report the template size
         shell: bash

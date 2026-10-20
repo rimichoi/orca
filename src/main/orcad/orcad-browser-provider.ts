@@ -7,12 +7,11 @@ import {
   type RuntimeBrowserCommandsFactory,
   type RuntimeBrowserUnavailableCause
 } from '../runtime/runtime-browser-commands-factory'
-import {
-  ExternalChromiumBrowserProcess,
-  type ExternalChromiumLaunch
-} from './external-chromium-browser-process'
+import { ExternalChromiumBrowserProcess } from './external-chromium-browser-process'
+import type { ExternalChromiumLaunch } from './external-chromium-browser-session'
 import { resolveOrcadAgentBrowserBinary } from './orcad-agent-browser-binary'
 import { ElectronServeBrowserProcess } from './electron-serve-browser-process'
+import { openOrcadBrowserInstallPark } from './orcad-browser-install-park'
 
 export type OrcadBrowserProvider = {
   kind: 'electron' | 'chromium'
@@ -158,11 +157,26 @@ async function startElectronServeProvider(
   } catch (error) {
     return cleanupFailedProvider(processHandle, error)
   }
+  const installPark = openOrcadBrowserInstallPark(executablePath, {
+    pid: () => processHandle.pid(),
+    stop: () => processHandle.stop(),
+    start: async (restartSignal) => {
+      try {
+        await processHandle.start(restartSignal)
+      } catch (error) {
+        await processHandle.stop()
+        throw error
+      }
+    }
+  })
   return {
     kind: 'electron',
     factory: (host) => processHandle.createCommands(host),
     isAvailable: () => processHandle.isAvailable(),
-    stop: () => processHandle.stop()
+    stop: async () => {
+      await installPark?.close()
+      await processHandle.stop()
+    }
   }
 }
 

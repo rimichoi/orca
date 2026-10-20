@@ -1,4 +1,4 @@
-import { link, mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, rm, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -35,11 +35,14 @@ afterEach(async () => {
 })
 
 /** Runs a real scan in this process the way the scanner child does, keeping every report. */
-async function scanInChild(): Promise<{ reports: AiVaultScanWork[]; final: AiVaultScanWork }> {
+async function scanInChild(
+  limit = 20
+): Promise<{ reports: AiVaultScanWork[]; final: AiVaultScanWork }> {
   tempRoot = await mkdtemp(join(tmpdir(), 'orca-scan-strip-'))
   const roots = isolatedScanRoots(tempRoot)
-  for (const name of ['a', 'b', 'c']) {
-    await writeJsonlFile(join(roots.claudeProjectsDir, 'project', `${name}.jsonl`), [
+  for (const [index, name] of ['a', 'b', 'c'].entries()) {
+    const path = join(roots.claudeProjectsDir, 'project', `${name}.jsonl`)
+    await writeJsonlFile(path, [
       {
         type: 'user',
         sessionId: name,
@@ -48,6 +51,7 @@ async function scanInChild(): Promise<{ reports: AiVaultScanWork[]; final: AiVau
         message: { role: 'user', content: `ask ${name}` }
       }
     ])
+    await utimes(path, 1_000 + index, 1_000 + index)
   }
   // A second path to one transcript, as Codex homes and linked profiles produce: still one file.
   await mkdir(join(roots.claudeProjectsDir, 'linked'))
@@ -63,7 +67,7 @@ async function scanInChild(): Promise<{ reports: AiVaultScanWork[]; final: AiVau
     (work) => reports.push(work),
     () => (now += 1_000)
   )
-  await scanAiVaultSessions({ ...roots, platform: 'darwin', limit: 20, signal })
+  await scanAiVaultSessions({ ...roots, platform: 'darwin', limit, signal })
   return { reports, final: aiVaultScanWork(signal)! }
 }
 
@@ -116,7 +120,6 @@ describe('Session History scan progress, scanner child to window', () => {
     await scan
 
     expect(published.map((progress) => progress?.stage ?? null)).toEqual([
-      null,
       'finding',
       reports[0]!.stage,
       'finished'
@@ -130,19 +133,29 @@ describe('Session History scan progress, scanner child to window', () => {
     })
   })
 
-  it('keeps a replacement entry when the scan it replaced fails late', () => {
-    const old = startLocalAiVaultScanProgress('scope', 'old', () => 1_000)
-    old.sent()
-    const replacement = startLocalAiVaultScanProgress('scope', 'replacement', () => 2_000)
-    old.fail()
-    replacement.sent()
-    expect(localAiVaultScanProgress('scope')).toMatchObject({ stage: 'finding', startedAt: 2_000 })
-
-    replacement.fail()
-    expect(localAiVaultScanProgress('scope')).toBeNull()
+  it('reaches its total when the first pass stops before reading every file it planned', async () => {
+    // The newest file fills a limit of 1, so the pass never reads the older ones it announced.
+    const { final } = await scanInChild(1)
+    expect(final.read).toEqual({ done: 1, total: 1 })
   })
 
-  it('clears the entry when an interactive timeout retires the shared scanner', async () => {
+  it('keeps a replacement entry when the scan it replaced fails late', () => {
+    const earlier = startLocalAiVaultScanProgress('scope', 'earlier', () => 500)
+    earlier.finish(null)
+    const old = startLocalAiVaultScanProgress('scope', 'old', () => 1_000)
+    const replacement = startLocalAiVaultScanProgress('scope', 'replacement', () => 2_000)
+    old.fail()
+    expect(localAiVaultScanProgress('scope')).toMatchObject({ stage: 'finding', startedAt: 2_000 })
+
+    // A failed refresh puts back the last finished scan rather than leaving the key empty.
+    replacement.fail()
+    expect(localAiVaultScanProgress('scope')).toMatchObject({
+      scanId: 'earlier',
+      stage: 'finished'
+    })
+  })
+
+  it('settles unfinished work when an interactive timeout retires the shared scanner', async () => {
     vi.useFakeTimers()
     const { child, client, scan } = startScan()
     const rejectedScan = scan.catch((error: Error) => error)
@@ -163,7 +176,16 @@ describe('Session History scan progress, scanner child to window', () => {
 
     expect(await rejectedInteractive).toBeInstanceOf(Error)
     expect(await rejectedScan).toBeInstanceOf(Error)
-    expect(localAiVaultScanProgress('')).toBeNull()
+    expect(localAiVaultScanProgress('')).toMatchObject({ stage: 'finding', settledAt: 5_000 })
+    const retry = startLocalAiVaultScanProgress('', 'retry', () => 6_000)
+    retry.work({ stage: 'reading', agents: [], read: { done: 1, total: 2 } })
+    retry.fail()
+    expect(localAiVaultScanProgress('')).toMatchObject({
+      scanId: 'retry',
+      stage: 'reading',
+      settledAt: 6_000,
+      read: { done: 1, total: 2 }
+    })
     client.dispose()
   })
 

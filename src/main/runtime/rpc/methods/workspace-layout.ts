@@ -1,6 +1,6 @@
-// The read-only layout stream (design 2.4) and the server snapshot read (design 6.3). Not
-// advertised as a capability and not on the mobile allowlist: no client calls them until the
-// switch, so they are inert.
+// The layout stream (design 2.4), the server snapshot read (design 6.3) and layout.apply. Paired
+// desktops may call them; a desktop relies on them only on a server advertising
+// `layout.intents.v1` (layout-intents-capability.ts). Not on the mobile allowlist.
 
 import {
   LayoutApplyParams,
@@ -9,6 +9,8 @@ import {
 } from '../../../../shared/rpc-contract/workspace-layout-params'
 import type { WorkspaceLayoutStreamFrame } from '../../../../shared/workspace-layout/workspace-layout-stream-frames'
 import { defineMethod, defineStreamingMethod } from '../core'
+import { getAppEnvironment } from '../../../../shared/app-environment'
+import { listEnvironments } from '../../../../shared/runtime-environment-store'
 
 let layoutSubscriptionSeq = 0
 
@@ -30,8 +32,11 @@ export const WORKSPACE_LAYOUT_METHODS = [
         const subscriptionId = `layout-${connectionId ?? 'inproc'}-${++layoutSubscriptionSeq}`
         const cleanupKey = layoutCleanupKey(connectionId, subscriptionId)
         const release = (): void => runtime.cleanupSubscription(cleanupKey)
-        const { snapshot, seq, unsubscribe } = runtime.subscribeWorkspaceLayouts((event) => {
-          if (wanted(event.key)) {
+        const { snapshot, seq, epoch, unsubscribe } = runtime.subscribeWorkspaceLayouts((event) => {
+          if (event.type === 'records') {
+            // Sent even when it names none of them, so the subscriber's positions stay gapless.
+            emit({ ...event, workspaces: event.workspaces.filter((change) => wanted(change.key)) })
+          } else if (wanted(event.key)) {
             emit(event)
           }
         })
@@ -50,7 +55,8 @@ export const WORKSPACE_LAYOUT_METHODS = [
           type: 'snapshot',
           subscriptionId,
           workspaces: snapshot.filter((entry) => wanted(entry.key)),
-          seq
+          seq,
+          ...(epoch ? { epoch } : {})
         })
         if (signal?.aborted) {
           release()
@@ -71,7 +77,17 @@ export const WORKSPACE_LAYOUT_METHODS = [
     name: 'layout.getRemoteSnapshots',
     permission: 'workspace',
     params: null,
-    handler: async (_params, { runtime }) => ({ snapshots: runtime.getRemoteLayoutSnapshots() })
+    handler: async (_params, { runtime }) => {
+      // Only servers still paired: a removed server's last layout must not seed a view again.
+      const known = new Set(
+        listEnvironments(getAppEnvironment().getPath('userData')).map(({ id }) => id)
+      )
+      return {
+        snapshots: Object.fromEntries(
+          Object.entries(runtime.getRemoteLayoutSnapshots()).filter(([id]) => known.has(id))
+        )
+      }
+    }
   })
 ]
 

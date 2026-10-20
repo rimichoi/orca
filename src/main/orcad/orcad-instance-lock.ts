@@ -210,7 +210,7 @@ export function acquireOrcadInstanceLock(
       return Boolean(
         owner &&
         owner.identity === identity &&
-        holderLocality(owner, record, dataRootIsLocal) === 'local' &&
+        orcadLockHolderLocality(owner, record, dataRootIsLocal) === 'local' &&
         (!isAlive(owner.pid) || holderIdentity(owner) === 'differs')
       )
     }
@@ -247,7 +247,7 @@ export function acquireOrcadInstanceLock(
         'root corrupts it. Give each its own ORCA_USER_DATA.'
     )
   }
-  const locality = holderLocality(existing, record, dataRootIsLocal)
+  const locality = orcadLockHolderLocality(existing, record, dataRootIsLocal)
   if (locality !== 'local') {
     // Its PID means nothing here, so neither a missing nor a reused one proves it exited.
     throw new OrcadInstanceLockError(
@@ -282,9 +282,9 @@ export function acquireOrcadInstanceLock(
  * Same machine: the same machine identity, or (records without one) the same kernel boot. A record
  * that names neither is local only when no other machine can reach the data root.
  */
-function holderLocality(
-  holder: OrcadLockRecord,
-  self: OrcadLockRecord,
+function orcadLockHolderLocality(
+  holder: OrcadPeerMachine,
+  self: OrcadPeerMachine,
   dataRootIsOnLocalDisk: () => boolean
 ): 'local' | 'foreign' | 'unknown' {
   if (holder.machineIdentity && self.machineIdentity) {
@@ -294,6 +294,29 @@ function holderLocality(
     return 'local'
   }
   return dataRootIsOnLocalDisk() ? 'local' : 'unknown'
+}
+
+export type OrcadPeerMachine = Pick<OrcadLockRecord, 'machineIdentity' | 'bootId'>
+
+export function currentOrcadPeerMachine(): OrcadPeerMachine {
+  const machineIdentity = profileStateAccessMachineIdentity()
+  const bootId = readOrcadProcessIncarnation(process.pid)?.bootId
+  return { ...(machineIdentity ? { machineIdentity } : {}), ...(bootId ? { bootId } : {}) }
+}
+
+/**
+ * Whether a peer's recorded PID means anything here: same machine and kernel boot. A different or
+ * unprovable one leaves the peer unverifiable, never exited.
+ */
+export function orcadPeerPidIsJudgeableHere(
+  peer: OrcadPeerMachine,
+  self: OrcadPeerMachine,
+  dataRootIsOnLocalDisk: () => boolean
+): boolean {
+  if (peer.bootId && self.bootId && peer.bootId !== self.bootId) {
+    return false
+  }
+  return orcadLockHolderLocality(peer, self, dataRootIsOnLocalDisk) === 'local'
 }
 
 /** A record without a boot id cannot tell its holder from a reused PID; say so. */

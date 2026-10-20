@@ -13,7 +13,7 @@ const directories = []
 const configuration = {
   sourceSha: 'a'.repeat(40),
   version: '1.2.3-rc.4',
-  packageManager: 'pnpm@12.8.1',
+  packageManager: 'pnpm@12.14.0',
   identity: 'rc',
   diagnosticsTokenUrl: 'https://example.test/diagnostics',
   telemetryKeySha256: 'b'.repeat(64)
@@ -34,6 +34,7 @@ function fixture() {
     'preload/index.js',
     'renderer/index.html',
     'renderer/.vite/manifest.json',
+    'renderer/.orca-web-client-files.json',
     'web/web-index.html',
     'mobile-web/manifest.json',
     'package.json',

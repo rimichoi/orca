@@ -25,6 +25,7 @@ import { TabSessionSurfaceSwitchMenuItems } from './TabSessionSurfaceSwitchMenuI
 import type { NativeChatTabSession } from './tab-session-history-switch'
 import { TAB_CONTEXT_MENU_CONTENT_CLASS } from './tab-context-menu-sizing'
 import { CopyTabIdMenuItem } from './CopyTabIdMenuItem'
+import { CloseSplitPaneMenuItem } from './CloseSplitPaneMenuItem'
 
 const TAB_COLORS = [
   {
@@ -108,6 +109,7 @@ type SortableTabContextMenuProps = {
   onCloseOthers: (tabId: string) => void
   onCloseToRight: (tabId: string) => void
   onCloseToLeft: (tabId: string) => void
+  onCloseSplitPane?: () => void
   onRenameOpen: () => void
   onSetTabColor: (tabId: string, color: string | null) => void
   onTogglePin: () => void
@@ -144,6 +146,7 @@ export function SortableTabContextMenu({
   onCloseOthers,
   onCloseToRight,
   onCloseToLeft,
+  onCloseSplitPane,
   onRenameOpen,
   onSetTabColor,
   onTogglePin,
@@ -191,17 +194,17 @@ export function SortableTabContextMenu({
               <SquareTerminal className="size-3.5 shrink-0" />
               {translate(
                 'components.tab.bar.SortableTabContextMenu.switchToTerminalView',
-                'Switch to terminal view'
+                'Switch to Terminal Agent'
               )}
             </DropdownMenuItem>
           </>
         ) : null}
         <TabSessionSurfaceSwitchMenuItems
           key={sessionSwitchOpening}
-          onComplete={onSessionSwitchComplete}
           tab={tab}
           nativeChat={nativeChat}
           leadingSeparator={!showTerminalViewSwitch}
+          onComplete={onSessionSwitchComplete}
         />
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onTogglePin}>
@@ -229,16 +232,17 @@ export function SortableTabContextMenu({
           <PanelRightClose className="size-3.5" />
           {translate(
             'auto.components.tab.bar.SortableTabContextMenu.c1ee099c7e',
-            'Close Tabs To The Right'
+            'Close All Tabs To The Right'
           )}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onCloseToLeft(tab.id)} disabled={!hasTabsToLeft}>
           <PanelLeftClose className="size-3.5" />
           {translate(
             'components.tab.bar.SortableTabContextMenu.closeTabsToLeft',
-            'Close Tabs To The Left'
+            'Close All Tabs To The Left'
           )}
         </DropdownMenuItem>
+        <CloseSplitPaneMenuItem onCloseSplitPane={onCloseSplitPane} />
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onRenameOpen}>
           <Pencil className="size-3.5" />

@@ -7,6 +7,12 @@ import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-sessio
 import { claudeSessionIdForOrcaSession } from '../claude/claude-structured-launch-resolution'
 import type { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-host'
 import { createScriptedClaudeRuntime } from './structured-claude-scripted-runtime-test-support'
+import { structuredAgentSessionSeedCatalog } from '../../shared/structured-agent-session-seed-catalog'
+import {
+  applyStructuredAgentSessionOptions,
+  createStructuredAgentSessionOptionState
+} from '../../shared/structured-agent-session-options'
+import { structuredAgentSessionSendSelection } from '../../shared/structured-agent-session-option-view'
 
 const SESSION = 'claude-retired-saved-model'
 const CALLER = { callerKey: 'client-1' }
@@ -64,6 +70,21 @@ describe("a Claude chat whose saved model the CLI says doesn't exist", () => {
     expect(host.deps.store.getRecord(SESSION)?.options).toMatchObject({
       model: RETIRED,
       effort: 'high'
+    })
+    // The picker shows what the child runs now, so the next send moves the chat off the model.
+    const answer = await vi.waitFor(async () => {
+      const read = await host.readOptions(SESSION, { readsWithoutModel: true })
+      expect(read.current.model).not.toBe(RETIRED)
+      return read
+    })
+    const seed = structuredAgentSessionSeedCatalog('claude')
+    const reopened = applyStructuredAgentSessionOptions(
+      createStructuredAgentSessionOptionState('claude', seed),
+      seed,
+      answer
+    )
+    expect(structuredAgentSessionSendSelection(reopened)).toMatchObject({
+      model: answer.current.model
     })
   })
 

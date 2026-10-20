@@ -128,9 +128,13 @@ it('builds a native Windows chat fork for the project shell even when the global
     prepared: {
       useRealCodexHome: false,
       cliForkSource: {
-        agent: 'codex', sourceAgent: 'codex', sessionId: 'chat-1',
-        filePath: 'C:\\sessions\\chat-1.jsonl', cwd: WIN,
-        codexHome: 'C:\\codex-home', executionHostPlatform: 'win32'
+        agent: 'codex',
+        sourceAgent: 'codex',
+        sessionId: 'chat-1',
+        filePath: 'C:\\sessions\\chat-1.jsonl',
+        cwd: WIN,
+        codexHome: 'C:\\codex-home',
+        executionHostPlatform: 'win32'
       }
     },
     settings: { agentDefaultArgs: { codex: '' } },

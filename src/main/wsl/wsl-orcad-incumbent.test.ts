@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { encodePairingOffer } from '../../shared/pairing'
-import { emptyOrcadActivationRecord } from '../ssh/orcad-activation-record'
+import { emptyOrcadActivationRecord } from '../managed-server/activation/orcad-activation-record'
 import type { OrcadHostTransport } from '../ssh/orcad-host-transport'
-import type { OrcadRemoteContext } from '../ssh/orcad-remote-context'
+import type { OrcadRemoteContext } from '../managed-server/install/orcad-remote-context'
 import type { ServeReadiness } from '../server/serve-readiness'
 import { getRemoteHostPlatform } from '../ssh/ssh-remote-platform'
-import type { StartedPortForward } from '../ssh/ssh-port-forward-provider'
+import type { StartedPortForward } from '../ssh/port-forwarding/ssh-port-forward-provider'
 import { readWslOrcadIncumbent, type WslOrcadIncumbentDependencies } from './wsl-orcad-incumbent'
 import type { WslOrcadHostTarget } from './wsl-orcad-host-target'
 
@@ -120,7 +120,7 @@ describe('readWslOrcadIncumbent', () => {
     const { deps, close } = dependencies()
     const incumbent = await readWslOrcadIncumbent({ context: context(), slot }, deps)
     vi.mocked(deps.census).mockResolvedValueOnce({ ...LIVE, liveSessions: 3 })
-    await expect(incumbent.recount?.()).resolves.toMatchObject({ liveSessions: 3 })
+    await expect(incumbent.recount()).resolves.toMatchObject({ liveSessions: 3 })
     expect(deps.wake).toHaveBeenCalledTimes(1)
     expect(deps.listen).toHaveBeenCalledTimes(2)
     expect(close).toHaveBeenCalledTimes(2)
@@ -150,11 +150,10 @@ describe('readWslOrcadIncumbent', () => {
     const { deps } = dependencies({
       wake: vi.fn(async () => ({ outcome: 'unverifiable' as const }))
     })
-    await expect(readWslOrcadIncumbent({ context: context(), slot }, deps)).resolves.toEqual({
-      census: UNVERIFIABLE,
-      readiness: null,
-      recount: null
-    })
+    const incumbent = await readWslOrcadIncumbent({ context: context(), slot }, deps)
+    expect(incumbent).toMatchObject({ census: UNVERIFIABLE, readiness: null })
+    // The recount before the stop must refuse too, never read as zero.
+    await expect(incumbent.recount()).resolves.toEqual(UNVERIFIABLE)
     expect(deps.listen).not.toHaveBeenCalled()
   })
 
@@ -173,11 +172,9 @@ describe('readWslOrcadIncumbent', () => {
 
   it('touches nothing when no version is active', async () => {
     const { deps } = dependencies()
-    await expect(readWslOrcadIncumbent({ context: context(null), slot }, deps)).resolves.toEqual({
-      census: UNVERIFIABLE,
-      readiness: null,
-      recount: null
-    })
+    await expect(
+      readWslOrcadIncumbent({ context: context(null), slot }, deps)
+    ).resolves.toMatchObject({ census: UNVERIFIABLE, readiness: null })
     expect(deps.wake).not.toHaveBeenCalled()
   })
 })

@@ -12,10 +12,8 @@ import {
   type ExecutionHostId
 } from '../../../../shared/execution-host'
 import { getConnectionIdFromState } from '@/lib/connection-context'
-import {
-  getExplicitRuntimeEnvironmentIdForWorktree,
-  getKnownExecutionHostIdForWorktree
-} from '@/lib/worktree-runtime-owner'
+import { getKnownExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { runtimeEnvironmentIdForWorkspaceOwner } from '@/lib/resolve-owner'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import { getRuntimeEnvironmentRevision } from '@/runtime/runtime-environment-revision'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
@@ -40,7 +38,8 @@ export type NativeChatRuntimeSessionAttachmentOwner = {
 }
 
 export type NativeChatAttachmentOwner =
-  | { kind: 'local' }
+  /** `structuredSessionId`: a structured chat on this machine, whose sends claim its pastes. */
+  | { kind: 'local'; structuredSessionId?: string }
   | NativeChatRuntimeSessionAttachmentOwner
   /** Refuses client files: a terminal-backed chat on a paired server (its agent may run on that
    *  server's SSH or WSL host, which the server's store cannot reach), or an `ssh:` host, which
@@ -54,7 +53,7 @@ export type NativeChatAttachmentOwner =
   /** Store not hydrated / worktree unknown. Callers must not attach local
    *  paths in this window — the worktree may turn out to be remote, and the
    *  agent would silently receive paths it cannot read (see #6648). */
-  | { kind: 'not-ready' }
+  | { kind: 'not-ready'; notice?: string }
 
 type NativeChatAttachmentOwnerState = Pick<
   AppState,
@@ -90,7 +89,12 @@ export function resolveNativeChatAttachmentHost(
   if (worktreeId === FLOATING_TERMINAL_WORKTREE_ID) {
     return getKnownExecutionHostIdForWorktree(state, worktreeId)
   }
-  const runtimeId = getExplicitRuntimeEnvironmentIdForWorktree(state, worktreeId)
+  const owner = runtimeEnvironmentIdForWorkspaceOwner(state, { workspaceId: worktreeId })
+  // Why: an upload writes files; with two hosts publishing this id it must not land on either.
+  if (owner.kind === 'ambiguous') {
+    return null
+  }
+  const runtimeId = owner.environmentId
   const connectionId = getConnectionIdFromState(state, worktreeId)
   if (!runtimeId && connectionId === undefined) {
     return null
@@ -125,6 +129,9 @@ export type NativeChatStructuredAttachmentSession = {
   sessionId: string
   /** Null: the chat runs on this machine. */
   runtimeEnvironmentId: string | null
+  /** The host has not confirmed this chat, so nothing can be uploaded into it. */
+  sessionPending?: boolean
+  sessionPendingNotice?: string
 }
 
 /** A structured chat on a paired server owns its attachments by where it runs, not by worktree. */
