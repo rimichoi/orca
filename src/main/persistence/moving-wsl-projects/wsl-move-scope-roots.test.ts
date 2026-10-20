@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getDefaultWorkspaceSession } from '../../../shared/constants'
-import type { OrcadMigrationDormantStatePayload } from '../../../shared/orcad-migration-manifest'
+import type { OrcadMigrationDormantStatePayload } from '../../../shared/orcad-migration/orcad-migration-manifest'
 import { wslMoveCutoverFixture as cutover } from '../__fixtures__/wsl-mover/wsl-move-cutover-fixture'
 import { wslMoveScopeRootPaths } from './wsl-move-scope-roots'
 
