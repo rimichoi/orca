@@ -1304,7 +1304,8 @@
           "allUnknown": "Impossible de vérifier le travail non enregistré"
         },
         "machineDelete": {
-          "worktreesLeft": "{{name}} a été supprimée, mais {{count}} de ses worktrees sont toujours listés. Retirez-les depuis leur menu."
+          "worktreesLeft": "{{name}} a été supprimée, mais {{count}} de ses worktrees sont toujours listés. Retirez-les depuis leur menu.",
+          "stillThere": "{{name}} n’a pas été supprimée. Le fournisseur l’indique encore comme {{state}}."
         }
       }
     },
@@ -18555,6 +18556,11 @@
           "unreachableBody": "Elle est peut-être encore en démarrage. Si cela persiste, mettez-la en veille puis réveillez-la depuis son menu.",
           "reopenBody": "Ce terminal reprend quand la machine se réveille.",
           "stopping": "{{name}} se met en veille"
+        }
+      },
+      "worktreeCreation": {
+        "MachineLeftoverCheck": {
+          "stillThere": "Le fournisseur l’indique encore. Réessayez dans une minute."
         }
       }
     },

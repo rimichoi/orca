@@ -1398,7 +1398,8 @@
           "allUnknown": "Couldn’t check unsaved work"
         },
         "machineDelete": {
-          "worktreesLeft": "Deleted {{name}}, but {{count}} of its worktrees are still listed. Remove them from their menu."
+          "worktreesLeft": "Deleted {{name}}, but {{count}} of its worktrees are still listed. Remove them from their menu.",
+          "stillThere": "{{name}} wasn’t deleted. The provider still lists it as {{state}}."
         }
       }
     },
@@ -18712,6 +18713,11 @@
           "unreachableBody": "It may still be starting. If this stays, sleep and wake it from its menu.",
           "reopenBody": "This terminal resumes when the machine wakes.",
           "stopping": "{{name}} is going to sleep"
+        }
+      },
+      "worktreeCreation": {
+        "MachineLeftoverCheck": {
+          "stillThere": "The provider still lists it. Try again in a minute."
         }
       }
     },

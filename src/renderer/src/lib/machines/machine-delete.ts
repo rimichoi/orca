@@ -5,6 +5,7 @@ import { getWorktreeExecutionHostId } from '../../../../shared/execution-host'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { describeMachineActionFailure } from './machine-copy'
+import { getMachineDisplayState, getMachineDisplayStateLabel } from './machine-display-state'
 import type { MachineMatch } from './machine-host-match'
 
 /**
@@ -26,6 +27,20 @@ export async function deleteMachineWithWorktrees(
     }))
   if (!deleted.ok) {
     return { ok: false, error: describeMachineActionFailure(deleted.code, name) }
+  }
+  // Why: main answers with the machine as the provider left it; only `gone` proves the files went.
+  if (deleted.value.state !== 'gone') {
+    return {
+      ok: false,
+      error: translate(
+        'auto.lib.machines.machineDelete.stillThere',
+        '{{name}} wasn’t deleted. The provider still lists it as {{state}}.',
+        {
+          name,
+          state: getMachineDisplayStateLabel(getMachineDisplayState(deleted.value.state))
+        }
+      )
+    }
   }
   const repoById = new Map(repos.map((repo) => [repo.id, repo]))
   const removals = await Promise.all(

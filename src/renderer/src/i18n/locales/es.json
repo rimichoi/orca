@@ -1199,7 +1199,8 @@
           "allUnknown": "No se pudo comprobar el trabajo sin guardar"
         },
         "machineDelete": {
-          "worktreesLeft": "Se eliminó {{name}}, pero {{count}} de sus worktrees siguen en la lista. Quítalos desde su menú."
+          "worktreesLeft": "Se eliminó {{name}}, pero {{count}} de sus worktrees siguen en la lista. Quítalos desde su menú.",
+          "stillThere": "{{name}} no se eliminó. El proveedor aún lo muestra como {{state}}."
         }
       }
     },
@@ -18446,6 +18447,11 @@
           "unreachableBody": "Puede que aún se esté iniciando. Si continúa, suspéndela y reactívala desde su menú.",
           "reopenBody": "Este terminal se reanuda cuando la máquina despierta.",
           "stopping": "{{name}} se está suspendiendo"
+        }
+      },
+      "worktreeCreation": {
+        "MachineLeftoverCheck": {
+          "stillThere": "El proveedor aún lo muestra. Vuelve a intentarlo en un minuto."
         }
       }
     },

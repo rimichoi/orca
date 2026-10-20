@@ -37,7 +37,7 @@ beforeEach(() => {
 
 describe('deleteMachineWithWorktrees', () => {
   it('forgets the worktrees once the machine is gone', async () => {
-    machines.delete.mockResolvedValue({ ok: true, value: {} })
+    machines.delete.mockResolvedValue({ ok: true, value: { ...match.machine, state: 'gone' } })
     mocks.removeWorktree.mockResolvedValue({ ok: true })
 
     expect(await deleteMachineWithWorktrees(match, [worktree('a'), worktree('b')], [])).toEqual({
@@ -61,8 +61,18 @@ describe('deleteMachineWithWorktrees', () => {
     expect(mocks.removeWorktree).not.toHaveBeenCalled()
   })
 
+  it('keeps the worktrees when the provider still lists the machine', async () => {
+    machines.delete.mockResolvedValue({ ok: true, value: { ...match.machine, state: 'error' } })
+
+    expect(await deleteMachineWithWorktrees(match, [worktree('a')], [])).toEqual({
+      ok: false,
+      error: 'box wasn’t deleted. The provider still lists it as Error.'
+    })
+    expect(mocks.removeWorktree).not.toHaveBeenCalled()
+  })
+
   it('says which worktrees could not be removed', async () => {
-    machines.delete.mockResolvedValue({ ok: true, value: {} })
+    machines.delete.mockResolvedValue({ ok: true, value: { ...match.machine, state: 'gone' } })
     mocks.removeWorktree.mockResolvedValueOnce({ ok: false, error: 'x' })
 
     await deleteMachineWithWorktrees(match, [worktree('a')], [])

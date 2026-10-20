@@ -1200,7 +1200,8 @@
           "allUnknown": "저장되지 않은 작업을 확인할 수 없습니다"
         },
         "machineDelete": {
-          "worktreesLeft": "{{name}}을(를) 삭제했지만 워크트리 {{count}}개가 아직 목록에 있습니다. 각 메뉴에서 제거하세요."
+          "worktreesLeft": "{{name}}을(를) 삭제했지만 워크트리 {{count}}개가 아직 목록에 있습니다. 각 메뉴에서 제거하세요.",
+          "stillThere": "{{name}}이(가) 삭제되지 않았습니다. 공급자가 아직 {{state}} 상태로 표시합니다."
         }
       }
     },
@@ -18451,6 +18452,11 @@
           "unreachableBody": "아직 시작 중일 수 있습니다. 계속되면 메뉴에서 절전 후 다시 깨우세요.",
           "reopenBody": "머신이 깨어나면 이 터미널이 다시 시작됩니다.",
           "stopping": "{{name}}이(가) 절전 모드로 전환 중입니다"
+        }
+      },
+      "worktreeCreation": {
+        "MachineLeftoverCheck": {
+          "stillThere": "공급자에 아직 표시됩니다. 1분 후에 다시 시도하세요."
         }
       }
     },

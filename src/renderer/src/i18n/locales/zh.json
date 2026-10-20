@@ -1200,7 +1200,8 @@
           "allUnknown": "无法检查未保存的工作"
         },
         "machineDelete": {
-          "worktreesLeft": "已删除 {{name}}，但仍列出其 {{count}} 个工作树。请从各自菜单中移除。"
+          "worktreesLeft": "已删除 {{name}}，但仍列出其 {{count}} 个工作树。请从各自菜单中移除。",
+          "stillThere": "{{name}} 未被删除。提供方仍将其列为 {{state}}。"
         }
       }
     },
@@ -18451,6 +18452,11 @@
           "unreachableBody": "它可能仍在启动。如果一直如此，请从菜单中将其休眠后再唤醒。",
           "reopenBody": "机器唤醒后，此终端将恢复。",
           "stopping": "{{name}} 正在进入休眠"
+        }
+      },
+      "worktreeCreation": {
+        "MachineLeftoverCheck": {
+          "stillThere": "提供方仍列出它。请一分钟后重试。"
         }
       }
     },
