@@ -1116,6 +1116,7 @@
         "machineDisplayState": {
           "starting": "시작 중",
           "running": "실행 중",
+          "stopping": "절전 전환 중…",
           "sleeping": "절전 중",
           "archived": "보관됨",
           "unreachable": "연결 불가",

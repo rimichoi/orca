@@ -1116,6 +1116,7 @@
         "machineDisplayState": {
           "starting": "起動中",
           "running": "実行中",
+          "stopping": "スリープ中…",
           "sleeping": "スリープ中",
           "archived": "アーカイブ済み",
           "unreachable": "到達不能",

@@ -5,6 +5,8 @@ import { translate } from '@/i18n/i18n'
 export type MachineDisplayState =
   | 'starting'
   | 'running'
+  // A sleep or archive the provider accepted but has not finished.
+  | 'stopping'
   | 'sleeping'
   | 'archived'
   | 'unreachable'
@@ -17,6 +19,8 @@ export function getMachineDisplayState(state: MachineState): MachineDisplayState
       return 'starting'
     case 'running':
       return 'running'
+    case 'stopping':
+      return 'stopping'
     case 'sleeping':
       return 'sleeping'
     case 'archived':
@@ -37,6 +41,8 @@ export function getMachineDisplayStateLabel(state: MachineDisplayState): string 
       return translate('auto.lib.machines.machineDisplayState.starting', 'Starting')
     case 'running':
       return translate('auto.lib.machines.machineDisplayState.running', 'Running')
+    case 'stopping':
+      return translate('auto.lib.machines.machineDisplayState.stopping', 'Sleeping…')
     case 'sleeping':
       return translate('auto.lib.machines.machineDisplayState.sleeping', 'Sleeping')
     case 'archived':
@@ -50,5 +56,6 @@ export function getMachineDisplayStateLabel(state: MachineDisplayState): string 
 
 /** Submitting on a stopped machine wakes it first; a running one is used as is. */
 export function machineNeedsWake(state: MachineState): boolean {
-  return state === 'sleeping' || state === 'archived'
+  // A machine still going to sleep counts: main runs the wake once the sleep settles.
+  return state === 'sleeping' || state === 'archived' || state === 'stopping'
 }

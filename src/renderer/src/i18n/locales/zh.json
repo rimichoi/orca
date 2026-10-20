@@ -1116,6 +1116,7 @@
         "machineDisplayState": {
           "starting": "启动中",
           "running": "运行中",
+          "stopping": "正在休眠…",
           "sleeping": "休眠中",
           "archived": "已归档",
           "unreachable": "无法访问",

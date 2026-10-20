@@ -1115,6 +1115,7 @@
         "machineDisplayState": {
           "starting": "Iniciando",
           "running": "En ejecución",
+          "stopping": "Pasando a reposo…",
           "sleeping": "En reposo",
           "archived": "Archivada",
           "unreachable": "Inaccesible",
