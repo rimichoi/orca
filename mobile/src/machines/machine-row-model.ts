@@ -21,6 +21,8 @@ const STATE_LABELS: Record<string, { label: string; color: string }> = {
   archived: { label: 'Archived', color: colors.textMuted },
   creating: { label: 'Starting', color: colors.statusAmber },
   waking: { label: 'Waking', color: colors.statusAmber },
+  // A sleep the provider accepted but has not finished; no action until it settles.
+  stopping: { label: 'Sleeping…', color: colors.statusAmber },
   unreachable: { label: 'Unreachable', color: colors.statusRed },
   gone: { label: 'Gone', color: colors.statusRed },
   error: { label: 'Error', color: colors.statusRed }

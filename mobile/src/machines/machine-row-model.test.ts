@@ -28,6 +28,12 @@ describe('machineRowModel', () => {
     )
   })
 
+  it('shows a sleep still in progress as Sleeping… with no action', () => {
+    expect(
+      machineRowModel({ ...base, lifetime: 'persistent', state: 'stopping' }, 0, 0)
+    ).toMatchObject({ stateLabel: 'Sleeping…', action: null })
+  })
+
   it('reads expiry on the provider clock', () => {
     const now = Date.parse('2026-10-18T12:00:00Z')
     const machine = {
