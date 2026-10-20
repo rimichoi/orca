@@ -22,7 +22,11 @@ export type MachineRecord = Omit<ProviderMachine, 'state'> & {
   runtimeEnvironmentId?: string
   /** The managed Orca server an SSH machine's worktrees run on; kept on gone rows as their link. */
   managedEnvironmentId?: string
-  /** Pairing codes are credentials: rows keep `access.pairingCode` empty and store only this. */
+  /**
+   * The code this desktop last paired with successfully. Pairing codes are credentials, so rows keep
+   * `access.pairingCode` empty; an offered code that never paired is not recorded, or a rotated or
+   * failed one would be mistaken for current credentials.
+   */
   pairingCodeSha256?: string
 }
 

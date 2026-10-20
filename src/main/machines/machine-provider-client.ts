@@ -11,10 +11,13 @@ import type {
   MachineProviderInventory,
   MachineProgressEvent,
   MachineProviderKey,
-  MachineProviderSnapshot
+  MachineProviderSnapshot,
+  MachineRecord
 } from '../../shared/machine-inventory'
 import { readMachineInventoryStore, writeMachineInventoryStore } from './machine-inventory-store'
 import { runMachineProviderVerb, type MachineProviderSource } from './machine-provider-process'
+import { MachineMutationFence } from './machine-mutation-fence'
+import { requireRecord } from './machine-inventory-records'
 
 export type MachineProviderEntry = {
   providerKey: MachineProviderKey
@@ -74,6 +77,31 @@ export class MachineProviderClient {
     const created: MachineProviderInventory = { machines: [], pendingCreates: [] }
     this.store.providers[providerKey] = created
     return created
+  }
+
+  readonly fence = new MachineMutationFence()
+
+  /** A lifecycle result: reads that began before it can no longer overwrite this machine. */
+  commitMutation<T>(
+    provider: MachineProviderEntry,
+    machineId: string,
+    change: (inventory: MachineProviderInventory) => T
+  ): T {
+    const result = this.commit(provider, change)
+    this.fence.mutated(provider.providerKey, machineId)
+    return result
+  }
+
+  /** A read's answer for one machine; dropped when a mutation of it finished since the read began. */
+  commitRead(
+    provider: MachineProviderEntry,
+    machineId: string,
+    readStartedAt: number,
+    change: (inventory: MachineProviderInventory) => MachineRecord
+  ): MachineRecord {
+    return this.fence.changedSince(provider.providerKey, machineId, readStartedAt)
+      ? requireRecord(this.inventory(provider.providerKey), machineId)
+      : this.commit(provider, change)
   }
 
   /** Applies a change to one provider's inventory, persists, and publishes its snapshot. */

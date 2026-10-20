@@ -18,7 +18,12 @@ import {
   type MachineSshTargets
 } from './machine-connect'
 import type { SshTargetStartWindow } from '../ssh/ssh-target-start-window'
-import { findRecord, markUnreachable, patchRecord } from './machine-inventory-records'
+import {
+  findRecord,
+  markUnreachable,
+  pairingCodeSha256,
+  patchRecord
+} from './machine-inventory-records'
 import type { MachineProviderClient, MachineProviderEntry } from './machine-provider-client'
 
 type MachineFetch = (
@@ -125,7 +130,9 @@ export class MachineConnectFlow {
       )
     }
     const patch = (fields: Partial<MachineRecord>): void => {
-      this.client.commit(provider, (inventory) => patchRecord(inventory, record.id, fields))
+      this.client.commitMutation(provider, record.id, (inventory) =>
+        patchRecord(inventory, record.id, fields)
+      )
     }
     if (access.kind === 'ssh') {
       // Recorded before connecting: the target exists from here on, even if this connect fails.
@@ -143,7 +150,11 @@ export class MachineConnectFlow {
       access,
       previous?.pairingCodeSha256
     )
-    patch({ runtimeEnvironmentId: result.runtimeEnvironmentId, lastError: undefined })
+    patch({
+      runtimeEnvironmentId: result.runtimeEnvironmentId,
+      pairingCodeSha256: pairingCodeSha256(access.pairingCode),
+      lastError: undefined
+    })
     return { kind: 'orca-server', ...result }
   }
 

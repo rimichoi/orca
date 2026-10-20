@@ -90,7 +90,7 @@ export class MachineCreateFlow {
       if (!isConfirmedMachineTransition('create', machine.state)) {
         throw new MachineProviderError('invalid-response', `create reported ${machine.state}.`)
       }
-      const created = this.client.commit(provider, (inventory) => {
+      const created = this.client.commitMutation(provider, machine.id, (inventory) => {
         dropPendingCreate(inventory, operationId)
         return applyMachine(
           inventory,

@@ -15,6 +15,7 @@ import {
   applyInventory,
   applyMachine,
   failureOf,
+  isInventoryFresh,
   markGone,
   markUnreachable,
   patchRecord,
@@ -27,7 +28,6 @@ import {
 } from './machine-provider-client'
 
 const WAKE_POLL_LIMIT_MS = 180_000
-const FAILURE_BACKOFF_MS = [30_000, 120_000, 600_000]
 
 export type { MachineCreateParams } from './machine-create'
 export type { MachineProviderEntry } from './machine-provider-client'
@@ -89,7 +89,12 @@ export class MachineService {
     options: { maxAgeMs?: number; force?: boolean } = {}
   ): Promise<MachineProviderSnapshot> {
     const provider = this.client.provider(providerKey)
-    if (!options.force && this.isFresh(providerKey, options.maxAgeMs)) {
+    const failures = this.consecutiveFailures.get(providerKey) ?? 0
+    const inventory = this.client.inventory(providerKey)
+    if (
+      !options.force &&
+      isInventoryFresh(inventory, this.client.now(), failures, options.maxAgeMs)
+    ) {
       return this.client.snapshot(provider)
     }
     const inFlight = this.listFlights.get(providerKey)
@@ -171,19 +176,22 @@ export class MachineService {
     onStderr?: (chunk: string) => void
   ): Promise<{ record: MachineRecord; machine?: ProviderMachine }> {
     const provider = this.client.provider(providerKey)
+    const read = this.client.fence.readStarted()
     let machine: ProviderMachine
     try {
       machine = await this.client.callForMachine(provider, 'get', { machineId, onStderr })
     } catch (error) {
       if (error instanceof MachineProviderError && error.code === 'not-found') {
         return {
-          record: this.client.commit(provider, (inventory) => markGone(inventory, machineId))
+          record: this.client.commitRead(provider, machineId, read, (inventory) =>
+            markGone(inventory, machineId)
+          )
         }
       }
       this.client.commit(provider, (inventory) => markUnreachable(inventory, machineId, error))
       throw error
     }
-    const record = this.client.commit(provider, (inventory) =>
+    const record = this.client.commitRead(provider, machineId, read, (inventory) =>
       applyMachine(inventory, providerKey, machine, this.client.now())
     )
     return { record, machine }
@@ -191,6 +199,7 @@ export class MachineService {
 
   private async runList(provider: MachineProviderEntry): Promise<MachineProviderSnapshot> {
     const key = provider.providerKey
+    const read = this.client.fence.readStarted()
     try {
       const response = await this.client.call(provider, 'list')
       if (response.kind !== 'inventory') {
@@ -198,7 +207,9 @@ export class MachineService {
       }
       this.consecutiveFailures.delete(key)
       this.client.commit(provider, (inventory) => {
-        applyInventory(inventory, key, response.machines, this.client.now())
+        applyInventory(inventory, key, response.machines, this.client.now(), (machineId) =>
+          this.client.fence.changedSince(key, machineId, read)
+        )
         if (this.deps.isHostReferenced) {
           pruneGoneRecords(inventory, this.deps.isHostReferenced)
         }
@@ -272,7 +283,7 @@ export class MachineService {
     if (verb === 'delete') {
       return this.finishDelete(provider, machineId)
     }
-    const record = this.client.commit(provider, (inventory) =>
+    const record = this.client.commitMutation(provider, machineId, (inventory) =>
       applyMachine(inventory, providerKey, machine, this.client.now())
     )
     return pollWhileMachineState(record, verb === 'wake' ? 'waking' : 'stopping', {
@@ -306,25 +317,10 @@ export class MachineService {
     await this.deps
       .removeSshTarget(machineSshTargetId(provider.providerKey, machineId))
       .catch(() => undefined)
-    return this.client.commit(provider, (inventory) => {
+    return this.client.commitMutation(provider, machineId, (inventory) => {
       markGone(inventory, machineId)
       return patchRecord(inventory, machineId, { sshTargetId: undefined })
     })
-  }
-
-  private isFresh(providerKey: MachineProviderKey, maxAgeMs: number | undefined): boolean {
-    const inventory = this.client.inventory(providerKey)
-    const now = this.client.now()
-    const failures = this.consecutiveFailures.get(providerKey) ?? 0
-    if (failures > 0 && inventory.lastFailure) {
-      const backoff = FAILURE_BACKOFF_MS[Math.min(failures, FAILURE_BACKOFF_MS.length) - 1] ?? 0
-      return now - inventory.lastFailure.at < backoff
-    }
-    return (
-      maxAgeMs !== undefined &&
-      inventory.listedAt !== undefined &&
-      now - inventory.listedAt < maxAgeMs
-    )
   }
 
   private delay(ms: number): Promise<void> {

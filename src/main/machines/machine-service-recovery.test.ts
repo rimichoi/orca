@@ -28,14 +28,14 @@ const PAIRING_CODE = encodePairingOffer({
 })
 
 describe('MachineService recovery', () => {
-  it('never stores or returns a pairing code, only its hash', async () => {
+  it('never stores or returns a pairing code, and records no hash for an unpaired one', async () => {
     const orcaServer = machine({
       access: { kind: 'orca-server', pairingCode: PAIRING_CODE, projectRoot: '/w' }
     })
     const { service, userDataPath } = await setup({ get: reply(orcaServer) })
     const record = await service.get(KEY, 'sbx-1')
     expect(record.access).toMatchObject({ kind: 'orca-server', pairingCode: '' })
-    expect(record.pairingCodeSha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(record.pairingCodeSha256).toBeUndefined()
     const stored = await readFile(getMachineInventoryStorePath(userDataPath), 'utf8')
     expect(stored).not.toContain('secret-device-token')
     expect(stored).not.toContain(PAIRING_CODE)
