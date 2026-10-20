@@ -6,7 +6,11 @@ import type * as RuntimeRpcClientModule from '@/runtime/runtime-rpc-client'
 import { getWorktreeIdsWithStructuredChat } from '../sidebar/visible-worktree-activity-inputs'
 import { selectIsSleepingWorktree } from '../sidebar/use-worktree-sleep-state'
 import { hasSleepableWorkspaceActivity } from '../sidebar/workspace-lineage-menu-actions'
-import { agentSessionTabFixture } from './native-chat-workspace-test-fixtures'
+import {
+  agentSessionTabFixture,
+  repoFixture,
+  worktreeFixture
+} from './native-chat-workspace-test-fixtures'
 const mocks = vi.hoisted(() => ({ subscribeStatus: vi.fn(), supportsCapability: vi.fn() }))
 vi.mock('@/store', async () => {
   const { createTestStore } = await import('@/store/slices/store-test-helpers')
@@ -32,6 +36,67 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   resetStructuredAgentSessionStatusFeedsForTests()
+})
+it('keeps an unstamped inactive twin awake until its identified host publishes Sleep', async () => {
+  const workspaceId = 'repo::/repo/main'
+  mocks.supportsCapability.mockResolvedValue(true)
+  useAppStore.setState({
+    activeWorktreeId: 'another-workspace',
+    activeWorkspaceExecutionHostId: null,
+    repos: [
+      repoFixture({ executionHostId: 'local' }),
+      repoFixture({ executionHostId: 'runtime:paired' })
+    ],
+    worktreesByRepo: {
+      repo: [
+        worktreeFixture(workspaceId, '/repo/main', { hostId: 'local' }),
+        worktreeFixture(workspaceId, '/repo/main', {
+          hostId: 'runtime:paired',
+          runtimeOwnerEnvironmentId: 'paired'
+        })
+      ]
+    },
+    unifiedTabsByWorktree: { [workspaceId]: [agentSessionTabFixture('legacy', workspaceId)] },
+    structuredChatSleptAtByPaneKey: {},
+    agentStatusByPaneKey: {},
+    tabsByWorktree: {},
+    browserTabsByWorktree: {}
+  })
+  const awake = () => {
+    const state = useAppStore.getState()
+    return getWorktreeIdsWithStructuredChat(
+      state.unifiedTabsByWorktree,
+      state.structuredChatSleptAtByPaneKey
+    ).has(workspaceId)
+  }
+  render(<StructuredAgentSessionStatusBridge />)
+  expect(Object.values(useAppStore.getState().structuredChatSleptAtByPaneKey)).toEqual([null])
+  expect(awake()).toBe(true)
+  expect(selectIsSleepingWorktree(useAppStore.getState(), workspaceId)).toBe(false)
+  expect(mocks.supportsCapability).not.toHaveBeenCalled()
+  expect(mocks.subscribeStatus).not.toHaveBeenCalled()
+  act(() =>
+    useAppStore.setState({ activeWorktreeId: workspaceId, activeWorkspaceExecutionHostId: 'local' })
+  )
+  await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledOnce())
+  expect(selectIsSleepingWorktree(useAppStore.getState(), workspaceId)).toBe(false)
+  emit({
+    type: 'snapshot',
+    sessions: [
+      {
+        sessionId: 'session-legacy',
+        workspaceId,
+        agent: 'codex',
+        status: 'idle',
+        latestPrompt: '',
+        updatedAt: 1,
+        sleptAt: 5
+      }
+    ]
+  })
+  expect(Object.values(useAppStore.getState().structuredChatSleptAtByPaneKey)).toEqual([5])
+  expect(awake()).toBe(false)
+  expect(selectIsSleepingWorktree(useAppStore.getState(), workspaceId)).toBe(true)
 })
 it.each(['slept', 'disconnected', 'old-host'] as const)(
   'waits for host sleep evidence after restart: %s',

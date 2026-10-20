@@ -14,6 +14,7 @@ export function useStructuredChatSleepProjection(
   )
   const sleptAt = useSyncExternalStore(
     feed?.subscribe ?? (() => () => {}),
+    // An unidentified host keeps the workspace visible without guessing where its chat runs.
     () => (feed ? feed.getSessionSleepState(tab.entityId) : null),
     () => undefined
   )
