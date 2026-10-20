@@ -161,7 +161,7 @@ export function runDeferredSessionReattachChoice(session: ConnectPanePtySession)
             return
           }
           if (outcome.kind !== 'connected') {
-            if (outcome.kind !== 'failed') {
+            if (outcome.kind !== 'failed' && outcome.kind !== 'held') {
               return
             }
             // Why: React StrictMode can mount+spawn then immediately remount; if the first mount produced no PTY id,

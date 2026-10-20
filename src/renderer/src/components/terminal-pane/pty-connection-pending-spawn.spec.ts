@@ -112,6 +112,77 @@ export function registerPtyConnectionPendingSpawnTests(): void {
       )
     })
 
+    it('resumes a held pending spawn on reveal after a hidden remount', async () => {
+      const { connectPanePty } = await import('./pty-connection')
+      const { pendingSpawnByPaneKey } = await import('./pty-connection/pty-connect-limits')
+      const { getPaneSpawnDeferral } = await import('@/lib/pane-spawn-deferral-registry')
+      const { requestSleepingAgentWakeOnMount } = await import('@/lib/sleeping-agent-wake-requests')
+      const spawn = createDeferred<undefined>()
+      const producer = createMockTransport()
+      producer.connect.mockReturnValueOnce(spawn.promise)
+      const receiver = createMockTransport()
+      receiver.connect.mockImplementation(async () => {
+        receiver.getPtyId.mockReturnValue('pty-revealed')
+        return { id: 'pty-revealed' }
+      })
+      transportFactoryQueue.push(producer, receiver)
+      const paneKey = makePaneKey('tab-1', LEAF_1)
+      mockStoreState.tabsByWorktree = { 'wt-1': [{ id: 'tab-1', ptyId: null, generation: 7 }] }
+      mockStoreState.ptyIdsByTabId = { 'tab-1': [] }
+      mockStoreState.terminalLayoutsByTabId['tab-1'].ptyIdsByLeafId = {}
+      mockStoreState.sleepingAgentSessionsByPaneKey[paneKey] = {
+        paneKey,
+        tabId: 'tab-1',
+        worktreeId: 'wt-1',
+        agent: 'claude',
+        providerSession: { key: 'session_id', id: 'held-session' },
+        prompt: '',
+        state: 'done',
+        origin: 'worktree-sleep',
+        capturedAt: 1,
+        updatedAt: 1
+      }
+      mockStoreState.rememberSleepingAgentSession = vi.fn((record: { paneKey: string }) => {
+        mockStoreState.sleepingAgentSessionsByPaneKey[record.paneKey] ??= record
+      })
+      mockStoreState.pendingStartupByTabId = {}
+      mockStoreState.automaticAgentResumeClaimsByTabId = {}
+      const deps = createDeps({ isVisibleRef: { current: false } })
+      requestSleepingAgentWakeOnMount('wt-1', ['tab-1'])
+      const first = connectPanePty(createPane(1) as never, createManager(1) as never, deps as never)
+      await flushAsyncTicks(30)
+      expect(producer.connect).toHaveBeenCalledTimes(1)
+      expect(producer.connect.mock.calls[0][0].resumeSpawnIntent).toBe('automatic-restore')
+      producer.connect.mock.calls[0][0].callbacks.onSpawnDeferred('live_cap')
+      const selected = [...pendingSpawnByPaneKey.values()][0]
+      first.dispose()
+      const remount = connectPanePty(
+        createPane(1) as never,
+        createManager(1) as never,
+        deps as never
+      )
+      try {
+        await flushAsyncTicks(30)
+        expect(receiver.connect).not.toHaveBeenCalled()
+        expect(pendingSpawnByPaneKey.size).toBe(1)
+        spawn.resolve(undefined)
+        await expect(selected).resolves.toMatchObject({ kind: 'held' })
+        await flushAsyncTicks(50)
+        expect(pendingSpawnByPaneKey.size).toBe(0)
+        getPaneSpawnDeferral(paneKey)?.resume()
+        await flushAsyncTicks(30)
+        expect(receiver.connect).not.toHaveBeenCalled()
+        deps.isVisibleRef.current = true
+        remount.noteVisibilityResume()
+        await flushAsyncTicks(80)
+        expect(receiver.connect).toHaveBeenCalledTimes(1)
+        expect(receiver.getPtyId()).toBe('pty-revealed')
+        expect(deps.updateTabPtyId).toHaveBeenCalledWith('tab-1', 'pty-revealed')
+      } finally {
+        remount.dispose()
+      }
+    })
+
     it('joins the selected nested spawn across a StrictMode remount', async () => {
       const { connectPanePty } = await import('./pty-connection')
       const pendingSpawn = createDeferred<string>()
