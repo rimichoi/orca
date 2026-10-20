@@ -56,7 +56,6 @@ export type AgentSessionTurnContext = {
   /** Republishes state kept outside the journal, such as the record's options or rewind phase.
    *  Journal appends reach readers on their own. */
   publish: () => void
-  onSendAdmitted?: () => Promise<void>
   /** Who a Stop's refusal row names. */
   failureTextContext?: AgentSessionFailureWordsContext
   /** The operation's success, committed with the row that accepts it (`settlesWithWrite` or `commandReceipt`). */
@@ -167,7 +166,6 @@ export async function performSend(
     }
     return invalid('journalWriteFailed', 'The message could not be recorded and was not sent.')
   }
-  await ctx.onSendAdmitted?.()
   return {
     ok: true,
     value: {

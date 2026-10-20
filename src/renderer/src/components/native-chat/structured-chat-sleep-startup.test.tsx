@@ -61,6 +61,19 @@ it.each(['slept', 'disconnected', 'old-host'] as const)(
     expect(visible()).toBe(false)
     expect(selectIsSleepingWorktree(useAppStore.getState(), 'wt-1')).toBe(false)
     expect(hasSleepableWorkspaceActivity('wt-1', useAppStore.getState())).toBe(false)
+    expect(
+      hasSleepableWorkspaceActivity('wt-1', {
+        ...useAppStore.getState(),
+        browserTabsByWorktree: { 'wt-1': [{ id: 'browser' }] }
+      })
+    ).toBe(true)
+    expect(
+      hasSleepableWorkspaceActivity('wt-1', {
+        ...useAppStore.getState(),
+        tabsByWorktree: { 'wt-1': [{ id: 'terminal' }] },
+        ptyIdsByTabId: { terminal: ['pty'] }
+      })
+    ).toBe(true)
     render(<StructuredAgentSessionStatusBridge />)
     if (answer === 'old-host') {
       await waitFor(() => expect(visible()).toBe(true))
@@ -79,9 +92,15 @@ it.each(['slept', 'disconnected', 'old-host'] as const)(
       sleptAt: 5
     } as const
     emit(answer === 'disconnected' ? { type: 'end' } : { type: 'snapshot', sessions: [session] })
-    expect(visible()).toBe(answer !== 'slept')
+    expect(visible()).toBe(false)
     expect(selectIsSleepingWorktree(useAppStore.getState(), 'wt-1')).toBe(answer === 'slept')
-    expect(hasSleepableWorkspaceActivity('wt-1', useAppStore.getState())).toBe(answer !== 'slept')
+    expect(hasSleepableWorkspaceActivity('wt-1', useAppStore.getState())).toBe(false)
+    if (answer === 'disconnected') {
+      await waitFor(() => expect(mocks.subscribeStatus).toHaveBeenCalledTimes(2))
+      emit({ type: 'snapshot', sessions: [session] }, 1)
+      expect(visible()).toBe(false)
+      expect(selectIsSleepingWorktree(useAppStore.getState(), 'wt-1')).toBe(true)
+    }
     if (answer === 'slept') {
       emit({ type: 'end' })
       expect(visible()).toBe(false)

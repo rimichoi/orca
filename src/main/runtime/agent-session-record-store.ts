@@ -306,10 +306,15 @@ export class AgentSessionRecordStore {
     args: Parameters<typeof settleAgentSessionOperationInto>[1]
   ): Promise<void> => this.transact((draft) => settleAgentSessionOperationInto(draft, args))
 
-  /** That settlement, or an accepted row inserted if absent, committed by the journal write that
-   *  makes it true. It changes only the ledger, so no record listener is owed. */
+  /** Settlement committed with its journal write; a new submission also clears Sleep in that draft. */
   operationOutcomeReceipt = (args: Parameters<typeof agentSessionOperationOutcomeReceipt>[1]) =>
     agentSessionOperationOutcomeReceipt(this.transactions, args)
+
+  /** Automatic queue admission uses the same record transition as a client's send receipt. */
+  submissionReceipt = (sessionId: string) =>
+    this.transactions.receipt(() => {}, { submissionSessionId: sessionId })
+
+  admittedSendCount = (sessionId: string) => this.transactions.admittedSendCount(sessionId)
 
   commitOperationReceipt = (receipt: JournalOperationReceipt) =>
     this.transactions.commitReceipt(receipt)

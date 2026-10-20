@@ -49,12 +49,6 @@ export async function sleepStructuredAgentSessionWorkspace(
   // Admits every close synchronously; `async` turns a synchronous throw into a rejection.
   const stops = await Promise.allSettled(
     sessionIds.map(async (sessionId) => {
-      const admitted = new Set(
-        host.sessions
-          .get(sessionId)
-          ?.journal.submissions()
-          .map((send) => send.clientMessageId)
-      )
       const stop = await host.lifetime.closeForWorkspaceSleep(
         sessionId,
         workspaceId,
@@ -67,10 +61,7 @@ export async function sleepStructuredAgentSessionWorkspace(
           !record ||
           !belongs(record.location) ||
           record.lease.runtimeFence !== stop.fence ||
-          host.sessions
-            .get(sessionId)
-            ?.journal.submissions()
-            .some((send) => !admitted.has(send.clientMessageId))
+          host.deps.store.admittedSendCount(sessionId) !== stop.admittedSends
         ) {
           return null
         }
@@ -142,29 +133,4 @@ async function settleWorkspaceSleepChat(
     host.publishRecordNotes(sessionId)
   }
   return marked ? { stopped: true } : null
-}
-
-/** A newly recorded send wakes the chat; replay and held drafts never reach this point. */
-export async function clearStructuredAgentSessionSleepMark(
-  deps: Pick<StructuredAgentSessionHostDeps, 'store' | 'logger' | 'now'>,
-  sessionId: string,
-  publishStatus: (sessionId: string) => void
-): Promise<void> {
-  if (deps.store.getRecord(sessionId)?.sleptAt === undefined) {
-    return
-  }
-  const now = deps.now?.() ?? Date.now()
-  try {
-    await deps.store.transitionHandoff(sessionId, ({ sleptAt: _sleptAt, ...record }) => ({
-      ...record,
-      updatedAt: now
-    }))
-    publishStatus(sessionId)
-  } catch (error) {
-    deps.logger.warn('clearing a chat Sleep mark failed', {
-      scope: 'workspace-chat-wake',
-      sessionId,
-      error
-    })
-  }
 }

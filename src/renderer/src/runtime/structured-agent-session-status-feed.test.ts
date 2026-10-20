@@ -91,7 +91,8 @@ describe('structured agent session status feed', () => {
 
   it('reconnects when the capability probe fails, which is not an answer', async () => {
     mocks.supportsCapability.mockRejectedValue(new Error('relay unreachable'))
-    getStructuredAgentSessionStatusFeed(REMOTE).activate()
+    const feed = getStructuredAgentSessionStatusFeed(REMOTE)
+    feed.activate()
 
     await vi.advanceTimersByTimeAsync(0)
     expect(mocks.supportsCapability).toHaveBeenCalledTimes(2)
@@ -99,6 +100,11 @@ describe('structured agent session status feed', () => {
     await vi.advanceTimersByTimeAsync(300)
     expect(mocks.supportsCapability).toHaveBeenCalledTimes(4)
     expect(mocks.subscribeStatus).not.toHaveBeenCalled()
+    expect(feed.getSessionSleepState('session-1')).toBeUndefined()
+    mocks.supportsCapability.mockResolvedValue(true)
+    await vi.advanceTimersByTimeAsync(500)
+    hostEmit()({ type: 'snapshot', sessions: [{ ...summary('session-1'), sleptAt: 5 }] })
+    expect(feed.getSessionSleepState('session-1')).toBe(5)
   })
 
   it('probes nothing for a local host, which is this build', async () => {

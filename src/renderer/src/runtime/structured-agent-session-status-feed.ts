@@ -120,7 +120,6 @@ function createOwner(target: RuntimeClientTarget): OwnedStatusFeed {
       return
     }
     generation += 1
-    sleepResolved = true
     confirmedSessions.clear()
     revokeSnapshotOwnership()
     emit()
