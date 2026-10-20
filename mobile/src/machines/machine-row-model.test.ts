@@ -34,6 +34,20 @@ describe('machineRowModel', () => {
     ).toMatchObject({ stateLabel: 'Sleeping…', action: null })
   })
 
+  it('reads states through the shared rules, like the desktop', () => {
+    const row = (state: string) => machineRowModel({ ...base, lifetime: 'persistent', state }, 0, 0)
+    expect(row('waking')).toMatchObject({ stateLabel: 'Starting', action: null })
+    expect(row('error')).toMatchObject({ stateLabel: 'Error', action: null })
+    // A state from a newer desktop reads as Unreachable, never blank.
+    expect(row('hibernating')).toMatchObject({ stateLabel: 'Unreachable', action: null })
+  })
+
+  it("offers only the provider's declared verbs", () => {
+    const running = { ...base, lifetime: 'persistent', state: 'running' }
+    expect(machineRowModel(running, 0, 0, ['get', 'wake']).action).toBeNull()
+    expect(machineRowModel(running, 0, 0, ['sleep']).action).toBe('sleep')
+  })
+
   it('reads expiry on the provider clock', () => {
     const now = Date.parse('2026-10-18T12:00:00Z')
     const machine = {

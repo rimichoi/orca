@@ -60,7 +60,12 @@ export function MobileMachinesScreen() {
     machine: MobileMachine,
     stale: boolean
   ) => {
-    const model = machineRowModel(machine, provider.clockOffsetMs, now)
+    const model = machineRowModel(
+      machine,
+      provider.clockOffsetMs,
+      now,
+      provider.capabilities?.verbs
+    )
     const action = model.action
     const busy = machines.busy?.machineId === machine.id ? machines.busy.verb : null
     const run = () =>

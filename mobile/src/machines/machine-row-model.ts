@@ -1,3 +1,8 @@
+import {
+  getMachineActions,
+  getMachineDisplayState,
+  type MachineDisplayState
+} from '../../../src/shared/machine-display'
 import { machineMsUntilExpiry } from '../../../src/shared/machine-inventory'
 import { colors } from '../theme/mobile-theme'
 import type { MobileMachine } from './machine-operations'
@@ -15,18 +20,20 @@ export type MachineRowModel = {
   action: 'wake' | 'sleep' | null
 }
 
-const STATE_LABELS: Record<string, { label: string; color: string }> = {
+// Same vocabulary as the desktop: both read the state through the shared machine-display rules.
+const STATE_LABELS: Record<MachineDisplayState, { label: string; color: string }> = {
+  starting: { label: 'Starting', color: colors.statusAmber },
   running: { label: 'Running', color: colors.statusGreen },
+  stopping: { label: 'Sleeping…', color: colors.statusAmber },
   sleeping: { label: 'Sleeping', color: colors.textMuted },
   archived: { label: 'Archived', color: colors.textMuted },
-  creating: { label: 'Starting', color: colors.statusAmber },
-  waking: { label: 'Waking', color: colors.statusAmber },
-  // A sleep the provider accepted but has not finished; no action until it settles.
-  stopping: { label: 'Sleeping…', color: colors.statusAmber },
-  unreachable: { label: 'Unreachable', color: colors.statusRed },
-  gone: { label: 'Gone', color: colors.statusRed },
-  error: { label: 'Error', color: colors.statusRed }
+  error: { label: 'Error', color: colors.statusRed },
+  unreachable: { label: 'Unreachable', color: colors.statusAmber },
+  gone: { label: 'Gone', color: colors.statusRed }
 }
+
+// Why: a desktop too old to send its provider's verbs still served Wake and Sleep.
+const VERBS_BEFORE_CAPABILITIES: readonly string[] = ['wake', 'sleep']
 
 function expiryLabel(
   machine: MobileMachine,
@@ -61,9 +68,10 @@ function expiryLabel(
 export function machineRowModel(
   machine: MobileMachine,
   clockOffsetMs: number | undefined,
-  now: number
+  now: number,
+  verbs?: readonly string[]
 ): MachineRowModel {
-  const state = STATE_LABELS[machine.state] ?? { label: 'Unknown', color: colors.textMuted }
+  const state = STATE_LABELS[getMachineDisplayState(machine.state)]
   // A lifetime this build doesn't know shows nothing rather than a wrong word.
   const lifetime = LIFETIME_LABELS[machine.lifetime] ?? null
   const expiry = expiryLabel(machine, clockOffsetMs, now)
@@ -71,11 +79,13 @@ export function machineRowModel(
     stateLabel: state.label,
     stateColor: state.color,
     subtitle: [lifetime, expiry, machine.detail].filter(Boolean).join(' · '),
+    // A phone acts as a paired client: the shared rules leave it Wake and Sleep alone.
     action:
-      machine.state === 'running'
-        ? 'sleep'
-        : machine.state === 'sleeping' || machine.state === 'archived'
-          ? 'wake'
-          : null
+      getMachineActions({
+        state: machine.state,
+        verbs: verbs ?? VERBS_BEFORE_CAPABILITIES,
+        local: false,
+        sshCommandAvailable: false
+      }).find((action) => action === 'wake' || action === 'sleep') ?? null
   }
 }

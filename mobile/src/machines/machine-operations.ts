@@ -37,6 +37,11 @@ const snapshotSchema = z.object({
   name: z.string(),
   clockOffsetMs: z.number().optional(),
   lastFailure: z.object({ code: z.string(), message: z.string() }).optional(),
+  // The provider's declared verbs; absent from desktops that predate them.
+  capabilities: z
+    .object({ verbs: z.array(z.string()).catch([]) })
+    .optional()
+    .catch(undefined),
   machines: machineRowsSchema,
   pendingCreates: z.array(z.object({ operationId: z.string(), name: z.string() })).catch([])
 })
