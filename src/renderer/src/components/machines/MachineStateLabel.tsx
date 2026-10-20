@@ -19,7 +19,8 @@ export function MachineStateDot({
   const word = announce ? (
     <span className="sr-only">{getMachineDisplayStateLabel(state)}</span>
   ) : null
-  if (state === 'starting') {
+  // Busy either way: the provider is still starting or still stopping the machine.
+  if (state === 'starting' || state === 'stopping') {
     return (
       <>
         <LoadingSpinner className="size-3 shrink-0 self-center text-muted-foreground" />

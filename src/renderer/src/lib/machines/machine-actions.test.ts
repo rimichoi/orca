@@ -95,6 +95,8 @@ describe('getMachineMenuActions', () => {
     expect(getMachineMenuActions(match({ state: 'unreachable' }))).toEqual(['refresh'])
     // Mid-create or mid-wake, the provider is still acting on it.
     expect(getMachineMenuActions(match({ state: 'waking' }))).not.toContain('delete')
+    // Mid-sleep: no Wake, Sleep or Delete until it settles.
+    expect(getMachineMenuActions(match({ state: 'stopping' }))).toEqual(['refresh'])
   })
 
   it('keeps archive, delete and the SSH command off machines a paired server owns', () => {

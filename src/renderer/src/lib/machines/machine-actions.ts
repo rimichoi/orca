@@ -56,12 +56,13 @@ export function getMachineMenuActions(match: MachineMatch): MachineMenuAction[] 
   if (local) {
     actions.push('refresh')
   }
-  // Why: mid-create or mid-wake the provider is still acting on it; delete once it settles.
+  // Why: mid-create, mid-wake or mid-sleep the provider is still acting on it; delete once it settles.
   if (
     local &&
     state !== 'gone' &&
     state !== 'unreachable' &&
     state !== 'starting' &&
+    state !== 'stopping' &&
     verbs.has('delete')
   ) {
     actions.push('delete')
