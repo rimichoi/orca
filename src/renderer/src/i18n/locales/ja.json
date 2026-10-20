@@ -1152,7 +1152,8 @@
           "noProjectRoot": "プロバイダーは {{name}} 上のプロジェクトの場所を示しませんでした。",
           "noServer": "Orca は {{name}} でサーバーを起動できませんでした。プロジェクトの準備にはサーバーが必要です。",
           "createFailed": "{{name}} を作成できませんでした。",
-          "nameTaken": "{{name}} という名前のマシンは既にあります。詳細設定で別の名前を選んでください。"
+          "nameTaken": "{{name}} という名前のマシンは既にあります。詳細設定で別の名前を選んでください。",
+          "createStillRunning": "プロバイダーはまだ {{name}} を作成しています。1 分後にもう一度お試しください。"
         },
         "machineProviderActions": {
           "signInStarted": "{{provider}} へのサインインを完了してから、新しいワークツリーに戻ってください。",

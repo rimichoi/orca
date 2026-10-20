@@ -1152,7 +1152,8 @@
           "noProjectRoot": "공급자가 {{name}}에서 프로젝트 위치를 알려 주지 않았습니다.",
           "noServer": "Orca가 {{name}}에서 서버를 시작할 수 없습니다. 프로젝트를 설정하려면 서버가 필요합니다.",
           "createFailed": "{{name}}을(를) 만들 수 없습니다.",
-          "nameTaken": "{{name}} 이름의 머신이 이미 있습니다. 고급에서 다른 이름을 선택하세요."
+          "nameTaken": "{{name}} 이름의 머신이 이미 있습니다. 고급에서 다른 이름을 선택하세요.",
+          "createStillRunning": "공급자가 아직 {{name}}을(를) 만들고 있습니다. 1분 후에 다시 시도하세요."
         },
         "machineProviderActions": {
           "signInStarted": "{{provider}} 로그인을 마친 후 새 워크트리로 돌아가세요.",

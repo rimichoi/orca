@@ -1256,7 +1256,8 @@
           "noProjectRoot": "Le fournisseur n’a pas indiqué où se trouvent les projets sur {{name}}.",
           "noServer": "Orca n’a pas pu démarrer son serveur sur {{name}}, nécessaire pour configurer le projet.",
           "createFailed": "Impossible de créer {{name}}.",
-          "nameTaken": "Une machine nommée {{name}} existe déjà. Choisissez un autre nom dans Avancé."
+          "nameTaken": "Une machine nommée {{name}} existe déjà. Choisissez un autre nom dans Avancé.",
+          "createStillRunning": "Le fournisseur crée encore {{name}}. Réessayez dans une minute."
         },
         "machineProviderActions": {
           "signInStarted": "Terminez la connexion à {{provider}}, puis revenez à votre nouveau worktree.",

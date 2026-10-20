@@ -9,6 +9,7 @@ import type {
 import { appendProvisioningLog } from '@/lib/pending-creation-provisioning-log'
 import {
   checkCreateOutcome,
+  waitForCreatedMachine,
   createMachine,
   startMachine,
   subscribeMachineProgress,
@@ -63,8 +64,15 @@ async function ensureCreatedMachine(
   if (create.attempted) {
     const outcome = await checkCreateOutcome(machine.providerKey, create.operationId)
     switch (outcome.kind) {
-      case 'found':
-        return { ok: true, value: outcome.machine.id }
+      case 'found': {
+        // Why: the earlier attempt may have left it mid-create; connect only once it runs.
+        const settled = await waitForCreatedMachine(
+          outcome.machine,
+          () => !stillPending(creationId)
+        )
+        // Why: a canceled wait still names the machine; the caller stops before using it.
+        return !settled || settled.ok ? { ok: true, value: outcome.machine.id } : settled
+      }
       case 'pending':
         return {
           ok: false,

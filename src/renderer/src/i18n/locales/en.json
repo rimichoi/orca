@@ -1350,7 +1350,8 @@
           "noProjectRoot": "The provider didn’t say where projects live on {{name}}.",
           "noServer": "Orca couldn’t start its server on {{name}}, which it needs to set up the project.",
           "nameTaken": "A machine named {{name}} already exists. Pick another name in Advanced.",
-          "createFailed": "Couldn’t create {{name}}."
+          "createFailed": "Couldn’t create {{name}}.",
+          "createStillRunning": "The provider is still creating {{name}}. Try again in a minute."
         },
         "machineProviderActions": {
           "signInStarted": "Finish signing in to {{provider}}, then go back to your new worktree.",

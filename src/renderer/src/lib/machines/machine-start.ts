@@ -129,6 +129,50 @@ export async function checkCreateOutcome(
     : { kind: 'none' }
 }
 
+// Matches main's create wait: re-read every 3 s, give up after the provider's create window.
+const CREATE_POLL_MS = 3_000
+const CREATE_WAIT_MS = 10 * 60_000
+
+/**
+ * Waits out a create an earlier attempt left in progress, so the start that follows connects to a
+ * running machine instead of failing with "is creating". Null once canceled.
+ */
+export async function waitForCreatedMachine(
+  machine: MachineRecord,
+  isCanceled: () => boolean,
+  delay: (ms: number) => Promise<void> = (ms) => new Promise((done) => setTimeout(done, ms))
+): Promise<MachineStep<MachineRecord> | null> {
+  const target = { providerKey: machine.providerKey, machineId: machine.id }
+  const deadline = Date.now() + CREATE_WAIT_MS
+  let current = machine
+  while (current.state === 'creating') {
+    if (Date.now() >= deadline) {
+      return failed(
+        translate(
+          'auto.lib.machines.machineStart.createStillRunning',
+          'The provider is still creating {{name}}. Try again in a minute.',
+          { name: machine.name }
+        )
+      )
+    }
+    await delay(CREATE_POLL_MS)
+    if (isCanceled()) {
+      return null
+    }
+    const read = await window.api.machines.get(target)
+    if (!read.ok) {
+      return failedAction(
+        read,
+        translate('auto.lib.machines.machineStart.readFailed', 'Couldn’t reach {{name}}.', {
+          name: machine.name
+        })
+      )
+    }
+    current = read.value
+  }
+  return { ok: true, value: current }
+}
+
 /** Why the SSH host has no Orca server, in the connection's own words. */
 function managedServerBlocker(sshTargetId: string): string | undefined {
   const managed = useAppStore.getState().sshConnectionStates.get(sshTargetId)?.managedServer

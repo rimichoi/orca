@@ -1152,7 +1152,8 @@
           "noProjectRoot": "提供方未说明 {{name}} 上项目的位置。",
           "noServer": "Orca 无法在 {{name}} 上启动其服务器，而设置项目需要该服务器。",
           "createFailed": "无法创建 {{name}}。",
-          "nameTaken": "已存在名为 {{name}} 的机器。请在高级选项中选择其他名称。"
+          "nameTaken": "已存在名为 {{name}} 的机器。请在高级选项中选择其他名称。",
+          "createStillRunning": "提供方仍在创建 {{name}}。请一分钟后重试。"
         },
         "machineProviderActions": {
           "signInStarted": "完成 {{provider}} 登录后，返回你的新工作树。",
