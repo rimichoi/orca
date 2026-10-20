@@ -26,7 +26,7 @@ import {
   wslMoveJournalDirectory
 } from './wsl-move-cutover-journal'
 import { planWslMove } from './wsl-move-delta-plan'
-import { runWslMoveRetentionPass } from './wsl-move-retention'
+import { installWslMoveRetention, runWslMoveRetentionPass } from './wsl-move-retention'
 import { loadWslMoveFence, resetWslMoveFenceForTests } from './wsl-move-scope-guard'
 
 vi.mock('electron', () => ({
@@ -214,7 +214,8 @@ describe('WSL move retention', () => {
         folderWorkspaces: store.getFolderWorkspaces(),
         projectGroups: store.getProjectGroups()
       },
-      'Ubuntu'
+      'Ubuntu',
+      { repoIds: ['repo-a'], folderWorkspaceIds: ['notes'], highestGeneration: 1 }
     )
     expect(planned).toMatchObject({
       outcome: 'ready',
@@ -280,5 +281,69 @@ describe('WSL move retention', () => {
     expect(await pass()).toBeNull()
     expect(listWslMoveCutovers(testState.dir)[0]?.phase).toBe('client-rewritten')
     expect(store.getRepos().some((repo: Repo) => repo.orcadRetained)).toBe(false)
+  })
+
+  it('marks a delta move with its own id and keeps the earlier move on its rows', async () => {
+    seedWslMoveCutover(testState.dir, retainedMove('retained'))
+    open(profile())
+    await pass()
+    seedWslMoveCutover(
+      testState.dir,
+      wslMoveCutoverFixture(
+        'move-2',
+        'client-rewritten',
+        { supersedesMigrationId: 'move-1' },
+        { repoIds: ['repo-z'] }
+      )
+    )
+    store.addRepo(
+      makeRepo({ id: 'repo-z', displayName: 'repo-z', path: `${UNC}\\home\\dev\\repo-z` })
+    )
+
+    expect((await pass())?.retainedMigrationIds).toEqual(['move-2'])
+
+    const marks = localRow(store.getRepos()).map((repo) => [
+      repo.id,
+      repo.orcadRetained?.migrationId
+    ])
+    expect(marks).toEqual(
+      expect.arrayContaining([
+        ['repo-a', 'move-1'],
+        ['repo-z', 'move-2']
+      ])
+    )
+  })
+
+  it('leaves the move unretained when its marks cannot be made durable', async () => {
+    seedWslMoveCutover(testState.dir, retainedMove())
+    open(profile())
+    const failing = {
+      getRepos: () => store.getRepos(),
+      getFolderWorkspaces: () => store.getFolderWorkspaces(),
+      setWslMoveRetainedMarks: (marks: Parameters<Store['setWslMoveRetainedMarks']>[0]) =>
+        store.setWslMoveRetainedMarks(marks),
+      flushPendingOrThrowAsync: () => Promise.reject(new Error('disk full'))
+    }
+
+    expect(
+      await runWslMoveRetentionPass({ userDataPath: testState.dir, store: failing, warn: () => {} })
+    ).toBeNull()
+    expect(listWslMoveCutovers(testState.dir)[0]?.phase).toBe('client-rewritten')
+  })
+
+  it('retains a move as soon as the journal says its rewrite finished', async () => {
+    open(profile())
+    const stop = installWslMoveRetention({ userDataPath: testState.dir, store, warn: () => {} })
+    try {
+      seedWslMoveCutover(testState.dir, retainedMove())
+      await vi.waitFor(() => {
+        expect(listWslMoveCutovers(testState.dir)[0]?.phase).toBe('retained')
+      })
+      expect(
+        localRow(store.getRepos()).find((repo) => repo.id === 'repo-a')?.orcadRetained
+      ).toEqual(MARK)
+    } finally {
+      stop()
+    }
   })
 })

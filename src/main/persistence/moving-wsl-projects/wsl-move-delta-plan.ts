@@ -6,7 +6,8 @@
  *
  * A project an earlier move took and an older build has since changed is listed, not taken: the
  * host already holds it under the same ids and refuses a second copy, so the change stays in the
- * retained row (as SSH's delta does; see `planOrcadDeltaMove`).
+ * retained row (as SSH's delta does; see `planOrcadDeltaMove`). The same goes for a project the
+ * host still holds after its move was dropped from the journal.
  */
 import type { FolderWorkspace } from '../../../shared/folder-workspace-types'
 import type { OrcadMigrationManifest } from '../../../shared/orcad-migration/orcad-migration-manifest'
@@ -14,12 +15,17 @@ import { isOrcadMigrationLocalWslSource } from '../../../shared/orcad-migration/
 import type { ProjectGroup } from '../../../shared/project-group-types'
 import type { Repo } from '../../../shared/repo-types'
 import {
+  WSL_MOVE_CUTOVER_PHASES,
   WSL_MOVE_CUTOVER_VERSION,
   isWslMoveCutoverFinished,
   wslMoveJournalKey,
   type WslMoveCutover
 } from '../../../shared/wsl-move/wsl-move-cutover'
-import { listWslMoveCutoverChain, writeWslMoveCutover } from './wsl-move-cutover-journal'
+import {
+  listWslMoveCutoverChain,
+  scanWslMoveCutovers,
+  writeWslMoveCutover
+} from './wsl-move-cutover-journal'
 import {
   wslMoveLocalRowIdentity,
   wslMoveRowKey,
@@ -34,6 +40,14 @@ type WslMovePlanState = {
   repos: readonly Repo[]
   folderWorkspaces: readonly FolderWorkspace[]
   projectGroups: readonly ProjectGroup[]
+}
+
+/** What the destination host holds now, read before planning: the journal alone can't say. */
+export type WslMoveHostHolding = {
+  repoIds: readonly string[]
+  folderWorkspaceIds: readonly string[]
+  /** The highest source generation it has received for this distro; 0 for none. */
+  highestGeneration: number
 }
 
 export type WslMovePlanRefusal =
@@ -56,6 +70,8 @@ export type WslMovePlan = {
   changed: WslMoveRowRef[]
   /** Taken earlier, and no longer in this profile; the host keeps its copy. */
   removed: WslMoveRowRef[]
+  /** On the host with no move to show for it, e.g. after "Use on this computer again". */
+  heldByHost: WslMoveRowRef[]
   refused: WslMoveScope['refused']
 }
 
@@ -63,11 +79,22 @@ export type WslMovePlanResult =
   | { outcome: 'ready'; plan: WslMovePlan }
   | { outcome: 'refused'; code: WslMovePlanRefusal }
 
-/** Throws only when the distro's journal cannot be read. */
+const COMMITTED_FROM = WSL_MOVE_CUTOVER_PHASES.indexOf('destination-committed')
+
+const refsOf = (scope: {
+  repoIds: readonly string[]
+  folderWorkspaceIds: readonly string[]
+}): WslMoveRowRef[] => [
+  ...scope.repoIds.map((id) => ({ kind: 'repo' as const, id })),
+  ...scope.folderWorkspaceIds.map((id) => ({ kind: 'folder' as const, id }))
+]
+
+/** Throws only when the journal cannot be read. */
 export function planWslMove(
   userDataPath: string,
   state: WslMovePlanState,
   distro: string,
+  host: WslMoveHostHolding,
   /** The projects the user ticked; absent means the whole distro. */
   selection?: { repoIds: readonly string[]; folderWorkspaceIds: readonly string[] }
 ): WslMovePlanResult {
@@ -84,6 +111,17 @@ export function planWslMove(
       taken.set(wslMoveRowKey(ref), { ref, owner: cutover })
     }
   }
+  // Another distro's host owns these, even if an older build has since pointed them here.
+  const ownedElsewhere = new Set(
+    scanWslMoveCutovers(userDataPath)
+      .filter(
+        (cutover) =>
+          cutover.journalKey !== journalKey &&
+          WSL_MOVE_CUTOVER_PHASES.indexOf(cutover.phase) >= COMMITTED_FROM
+      )
+      .flatMap((cutover) => wslMoveScopeRefs(cutover).map(wslMoveRowKey))
+  )
+  const held = new Set(refsOf(host).map(wslMoveRowKey))
   const scope = collectWslMoveScope(state, distro)
   const selected = (ref: WslMoveRowRef): boolean =>
     !selection ||
@@ -91,38 +129,46 @@ export function planWslMove(
   // Local rows only: the host's own row carries the same id.
   const rows = new Map<string, Repo | FolderWorkspace>()
   for (const repo of state.repos) {
-    if (isLocalWslMoveRow(repo) && scope.repoIds.includes(repo.id)) {
+    if (isLocalWslMoveRow(repo)) {
       rows.set(wslMoveRowKey({ kind: 'repo', id: repo.id }), repo)
     }
   }
   for (const folder of state.folderWorkspaces) {
-    if (isLocalWslMoveRow(folder) && scope.folderWorkspaceIds.includes(folder.id)) {
+    if (isLocalWslMoveRow(folder)) {
       rows.set(wslMoveRowKey({ kind: 'folder', id: folder.id }), folder)
     }
   }
-  const candidates: WslMoveRowRef[] = [
-    ...scope.repoIds.map((id) => ({ kind: 'repo' as const, id })),
-    ...scope.folderWorkspaceIds.map((id) => ({ kind: 'folder' as const, id }))
-  ]
+  const candidates = refsOf(scope)
+  const inScope = new Set(candidates.map(wslMoveRowKey))
   const fresh: WslMoveRowRef[] = []
   const changed: WslMoveRowRef[] = []
+  const heldByHost: WslMoveRowRef[] = []
   for (const ref of candidates) {
-    const owner = taken.get(wslMoveRowKey(ref))?.owner
-    const row = rows.get(wslMoveRowKey(ref))
-    if (!owner) {
-      if (selected(ref)) {
-        fresh.push(ref)
-      }
+    const key = wslMoveRowKey(ref)
+    if (taken.has(key)) {
+      continue
+    }
+    if (ownedElsewhere.has(key)) {
+      changed.push(ref)
+    } else if (held.has(key)) {
+      heldByHost.push(ref)
+    } else if (selected(ref)) {
+      fresh.push(ref)
+    }
+  }
+  const removed: WslMoveRowRef[] = []
+  for (const [key, { ref, owner }] of taken) {
+    const row = rows.get(key)
+    if (!row) {
+      removed.push(ref)
     } else if (
-      row &&
+      // Out of scope now (a path left the distro), or another identity.
+      !inScope.has(key) ||
       wslMoveTakenRowIdentity(owner, ref) !== wslMoveLocalRowIdentity(row, distro)
     ) {
       changed.push(ref)
     }
   }
-  const removed = [...taken.entries()]
-    .filter(([key]) => !rows.has(key))
-    .map(([, entry]) => entry.ref)
   if (fresh.length === 0) {
     return { outcome: 'refused', code: 'wsl_move_nothing_new' }
   }
@@ -137,18 +183,24 @@ export function planWslMove(
             destinationEnvironmentId: head.destinationEnvironmentId
           }
         : {}),
-      generation: (head?.manifest.source.generation ?? 0) + 1,
+      // Strictly increasing even past a dropped move, whose generation only the host remembers.
+      generation: Math.max(head?.manifest.source.generation ?? 0, host.highestGeneration) + 1,
       repoIds: fresh.filter((ref) => ref.kind === 'repo').map((ref) => ref.id),
       folderWorkspaceIds: fresh.filter((ref) => ref.kind === 'folder').map((ref) => ref.id),
       changed,
       removed,
+      heldByHost,
       refused: scope.refused
     }
   }
 }
 
+// Duplicates fail: a doubled id could hide a row the manifest carries but the journal never fences.
 const sameIds = (left: readonly string[], right: readonly string[]): boolean =>
-  left.length === right.length && new Set([...left, ...right]).size === left.length
+  new Set(left).size === left.length &&
+  new Set(right).size === right.length &&
+  left.length === right.length &&
+  new Set([...left, ...right]).size === left.length
 
 /**
  * Journals a planned move at `prepared`. The manifest must be exactly the plan's scope, and the

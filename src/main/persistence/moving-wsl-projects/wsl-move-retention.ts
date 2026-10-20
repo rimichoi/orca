@@ -7,16 +7,19 @@
  *   flag rows whose identity it changed (a later move offers them; none runs on its own), and drop
  *   marks no committed move explains, such as after "Use on this computer again".
  */
-import { resolve } from 'node:path'
 import { wslHostsGateOpen } from '../../wsl/wsl-host-gate'
 import type { Store } from '../loading-store/store'
 import {
   listWslMoveCutoverChain,
-  listWslMoveCutovers,
   onWslMoveJournalChange,
+  scanWslMoveCutovers,
   writeWslMoveCutover
 } from './wsl-move-cutover-journal'
 import { planWslMoveRetainedMarks, type WslMoveRowRef } from './wsl-move-retained-source'
+import { userDataKey } from './wsl-move-scope-guard'
+
+// Bounded like a desktop rewrite store: a busy profile must not hold every later pass.
+export const WSL_MOVE_RETENTION_FLUSH_TIMEOUT_MS = 30_000
 
 export type WslMoveRetentionStore = Pick<
   Store,
@@ -26,6 +29,7 @@ export type WslMoveRetentionStore = Pick<
 export type WslMoveRetentionOptions = {
   userDataPath: string
   store: WslMoveRetentionStore
+  flushTimeoutMs?: number
   now?: () => Date
   warn?: (message: string) => void
 }
@@ -45,7 +49,7 @@ async function runPass(options: WslMoveRetentionOptions): Promise<WslMoveRetenti
   const now = (options.now ?? (() => new Date()))().toISOString()
   let chains: ReturnType<typeof listWslMoveCutoverChain>[]
   try {
-    const keys = new Set(listWslMoveCutovers(userDataPath).map((cutover) => cutover.journalKey))
+    const keys = new Set(scanWslMoveCutovers(userDataPath).map((cutover) => cutover.journalKey))
     chains = [...keys].map((key) => listWslMoveCutoverChain(userDataPath, key))
   } catch (error) {
     // Unreadable: no mark is added or removed, since none can be explained.
@@ -67,19 +71,28 @@ async function runPass(options: WslMoveRetentionOptions): Promise<WslMoveRetenti
     now
   })
   const rewrittenMarks = store.setWslMoveRetainedMarks(plan.marks)
-  if (rewrittenMarks > 0) {
-    await store.flushPendingOrThrowAsync()
+  // Also when retaining with nothing new: an earlier pass's marks may be only in memory.
+  if (rewrittenMarks > 0 || retaining.size > 0) {
+    // The marks' own generation must land; later unrelated writes need not.
+    await store.flushPendingOrThrowAsync({
+      drainToStableGeneration: false,
+      signal: AbortSignal.timeout(options.flushTimeoutMs ?? WSL_MOVE_RETENTION_FLUSH_TIMEOUT_MS)
+    })
   }
   const retainedMigrationIds: string[] = []
   for (const migrationId of retaining) {
     // Fresh from disk: "Use on this computer again" may have dropped it while the marks flushed.
-    const current = listWslMoveCutovers(userDataPath).find(
+    const current = scanWslMoveCutovers(userDataPath).find(
       (cutover) => cutover.migrationId === migrationId
     )
     if (current?.phase !== 'client-rewritten') {
       continue
     }
-    writeWslMoveCutover(userDataPath, { ...current, phase: 'retained', updatedAt: now })
+    writeWslMoveCutover(userDataPath, {
+      ...structuredClone(current),
+      phase: 'retained',
+      updatedAt: now
+    })
     retainedMigrationIds.push(migrationId)
   }
   return { retainedMigrationIds, rewrittenMarks, changed: plan.changed }
@@ -122,7 +135,7 @@ export function installWslMoveRetention(options: WslMoveRetentionOptions): () =>
   }
   schedule()
   return onWslMoveJournalChange((changedPath) => {
-    if (resolve(changedPath) === resolve(options.userDataPath)) {
+    if (userDataKey(changedPath) === userDataKey(options.userDataPath)) {
       schedule()
     }
   })

@@ -82,11 +82,12 @@ export function planWslMoveRetainedMarks(input: {
   now: string
 }): WslMoveRetainedMarkPlan {
   const owners = new Map<string, Readonly<WslMoveCutover>>()
-  const committed = new Set<string>()
+  // Committed moves by id, with the rows each took.
+  const committed = new Map<string, Set<string>>()
   for (const chain of input.chains) {
     for (const cutover of chain) {
       if (WSL_MOVE_CUTOVER_PHASES.indexOf(cutover.phase) >= COMMITTED_FROM) {
-        committed.add(cutover.migrationId)
+        committed.set(cutover.migrationId, new Set(wslMoveScopeRefs(cutover).map(wslMoveRowKey)))
       }
       if (cutover.phase !== 'retained' && !input.retaining.has(cutover.migrationId)) {
         continue
@@ -105,8 +106,8 @@ export function planWslMoveRetainedMarks(input: {
   ) => {
     const owner = owners.get(wslMoveRowKey(ref))
     if (!owner) {
-      // A move "Use on this computer again" dropped, or one never committed: its mark means nothing.
-      if (current && !committed.has(current.migrationId)) {
+      // A dropped move ("Use on this computer again"), or one that never took this row.
+      if (current && !committed.get(current.migrationId)?.has(wslMoveRowKey(ref))) {
         plan.marks.push({ ...ref, marker: null })
       }
       return
