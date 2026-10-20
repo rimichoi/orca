@@ -23,6 +23,7 @@ type StoreFixture = {
   setRuntimeEnvironments: ReturnType<typeof vi.fn>
   setupProjectClone: ReturnType<typeof vi.fn>
   sshConnectionStates: Map<string, unknown>
+  applyEnvironmentMachine: ReturnType<typeof vi.fn>
 }
 
 const store: StoreFixture = {
@@ -34,7 +35,8 @@ const store: StoreFixture = {
   updatePendingWorktreeCreation: vi.fn(),
   setRuntimeEnvironments: vi.fn(),
   setupProjectClone: vi.fn(),
-  sshConnectionStates: new Map()
+  sshConnectionStates: new Map(),
+  applyEnvironmentMachine: vi.fn()
 }
 
 vi.mock('@/store', () => ({ useAppStore: { getState: () => store } }))
@@ -285,5 +287,10 @@ describe('prepareMachineRequest', () => {
     )
     expect(machines.connect).not.toHaveBeenCalled()
     expect(prepared?.repoId).toBe('repo-local')
+    // Why: nothing pushes a paired server's changes, so its returned record lands here at once.
+    expect(store.applyEnvironmentMachine).toHaveBeenCalledWith(
+      'env-2',
+      expect.objectContaining({ id: 'box-1' })
+    )
   })
 })

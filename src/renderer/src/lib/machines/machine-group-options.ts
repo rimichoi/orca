@@ -5,6 +5,7 @@ import type {
   MachineRecord
 } from '../../../../shared/machine-inventory'
 import type { MachineLifetime } from '../../../../shared/machine-provider-protocol'
+import { machineLocalExpiresAt } from '../../../../shared/machine-inventory'
 import { getMachineDisplayState, type MachineDisplayState } from './machine-display-state'
 
 export type MachineOption = {
@@ -45,14 +46,6 @@ export type MachineGroupOption = {
 }
 
 /** Local epoch ms of `expiresAt`, corrected for the provider's clock. */
-export function getMachineLocalExpiry(
-  machine: Pick<MachineRecord, 'expiresAt'>,
-  clockOffsetMs: number | undefined
-): number | null {
-  const expiresAt = machine.expiresAt ? Date.parse(machine.expiresAt) : Number.NaN
-  return Number.isNaN(expiresAt) ? null : expiresAt - (clockOffsetMs ?? 0)
-}
-
 function groupStatus(snapshot: MachineProviderSnapshot): MachineGroupStatus {
   const failure: MachineProviderFailure | undefined = snapshot.lastFailure
   if (!failure) {
@@ -91,7 +84,7 @@ function toOption(
     name: machine.name,
     state: getMachineDisplayState(machine.state),
     lifetime: machine.lifetime,
-    expiresAt: getMachineLocalExpiry(machine, snapshot.clockOffsetMs)
+    expiresAt: machineLocalExpiresAt(machine, snapshot.clockOffsetMs)
   }
 }
 

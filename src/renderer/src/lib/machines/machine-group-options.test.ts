@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MachineProviderSnapshot, MachineRecord } from '../../../../shared/machine-inventory'
-import { buildMachineGroupOptions, getMachineLocalExpiry } from './machine-group-options'
+import { buildMachineGroupOptions } from './machine-group-options'
 import { findMachineForHost } from './machine-host-match'
 
 const PROVIDER = 'plugin:omarchy/omarchy' as const
@@ -60,13 +60,6 @@ describe('buildMachineGroupOptions', () => {
     expect(status('context-mismatch')).toEqual({ kind: 'different-account' })
     expect(status('invalid-response')).toEqual({ kind: 'invalid-response' })
     expect(status('timeout')).toEqual({ kind: 'unreachable', lastSeenAt: 5 })
-  })
-})
-
-describe('getMachineLocalExpiry', () => {
-  it('shifts the provider clock into local time', () => {
-    expect(getMachineLocalExpiry({ expiresAt: '1970-01-01T00:00:10.000Z' }, 2_000)).toBe(8_000)
-    expect(getMachineLocalExpiry({}, 2_000)).toBeNull()
   })
 })
 

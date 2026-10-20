@@ -1120,7 +1120,8 @@
           "sleeping": "休眠中",
           "archived": "已归档",
           "unreachable": "无法访问",
-          "gone": "已消失"
+          "gone": "已消失",
+          "error": "错误"
         },
         "machineWakeOnOpen": {
           "wakeFailed": "无法唤醒 {{name}}",

@@ -1224,7 +1224,8 @@
           "sleeping": "En veille",
           "archived": "Archivée",
           "unreachable": "Injoignable",
-          "gone": "Disparue"
+          "gone": "Disparue",
+          "error": "Erreur"
         },
         "machineWakeOnOpen": {
           "wakeFailed": "Impossible de réveiller {{name}}",

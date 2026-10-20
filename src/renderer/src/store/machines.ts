@@ -3,6 +3,10 @@ import type {
   MachineActionResult,
   MachineProviderSnapshot
 } from '../../../shared/machine-inventory'
+import {
+  parseRemoteMachineRecord,
+  parseRemoteMachineSnapshots
+} from '@/lib/machines/remote-machine-snapshots'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
 import { installWindowVisibilityInterval } from '@/lib/window-visibility-interval'
@@ -20,22 +24,9 @@ const VISIBLE_LIST_MAX_AGE_MS = 60_000
 let subscribed = false
 let loadState: 'idle' | 'loading' | 'ready' = 'idle'
 
-const NO_MACHINE_STATE: Pick<AppState, 'machineProviders' | 'machineEnvironmentProviders'> = {
-  machineProviders: {},
-  machineEnvironmentProviders: {}
-}
-
-/** The machines slice; sidebar and card surfaces also render against partial stores. */
-function machineSlice(
-  state: AppState
-): Pick<AppState, 'machineProviders' | 'machineEnvironmentProviders'> {
-  // Why: the slice is optional to every surface that only decorates hosts with machines.
-  return 'machineProviders' in state ? state : NO_MACHINE_STATE
-}
-
 let reloadQueued = false
 
-function loadSnapshots(machinesApi: NonNullable<typeof window.api.machines>): void {
+function loadSnapshots(machinesApi: typeof window.api.machines): void {
   loadState = 'loading'
   machinesApi.snapshots().then(
     (result) => {
@@ -60,14 +51,11 @@ function loadSnapshots(machinesApi: NonNullable<typeof window.api.machines>): vo
  * Providers come from plugin manifests, so a plugin enabled or removed later re-reads the list.
  */
 export function ensureMachinesLoaded(): void {
-  const machinesApi = window.api?.machines
-  if (!machinesApi) {
-    return
-  }
+  const machinesApi = window.api.machines
   if (!subscribed) {
     subscribed = true
     machinesApi.onChanged((snapshot) => useAppStore.getState().applyMachineSnapshot(snapshot))
-    window.api.plugins?.onChanged(() => {
+    window.api.plugins.onChanged(() => {
       if (loadState === 'loading') {
         reloadQueued = true
       } else {
@@ -82,10 +70,7 @@ export function ensureMachinesLoaded(): void {
 
 /** Re-lists this app's providers older than `maxAgeMs`; results arrive through the change push. */
 export function refreshMachineProviders(maxAgeMs: number): void {
-  const machinesApi = window.api?.machines
-  if (!machinesApi) {
-    return
-  }
+  const machinesApi = window.api.machines
   for (const { providerKey } of Object.values(useAppStore.getState().machineProviders)) {
     void machinesApi.list({ providerKey, maxAgeMs })
   }
@@ -93,19 +78,29 @@ export function refreshMachineProviders(maxAgeMs: number): void {
 
 /**
  * Reads a paired server's machines. Only a server without machine methods reads as having none;
- * losing contact keeps what was last seen, since it says nothing about the machines.
+ * losing contact keeps what was last seen, since it says nothing about the machines. `refresh`
+ * asks the server to re-list rather than answer from its cache, which may be stale while its own
+ * window is hidden.
  */
-export async function loadEnvironmentMachines(environmentId: string): Promise<void> {
+export async function loadEnvironmentMachines(
+  environmentId: string,
+  { refresh = false }: { refresh?: boolean } = {}
+): Promise<void> {
   const store = useAppStore.getState()
   try {
-    const result = await callRuntimeRpc<MachineActionResult<MachineProviderSnapshot[]>>(
+    const result = await callRuntimeRpc<MachineActionResult<unknown>>(
       { kind: 'environment', environmentId },
       'machines.list',
-      {},
+      refresh ? { refresh: true } : {},
       { suppressFeatureInteraction: true }
     )
     if (result.ok) {
-      store.setMachineEnvironmentSnapshots(environmentId, result.value)
+      const snapshots = parseRemoteMachineSnapshots(result.value)
+      if (snapshots) {
+        store.setMachineEnvironmentSnapshots(environmentId, snapshots)
+      } else {
+        console.warn(`[machines] ignoring an unreadable machine list from ${environmentId}`)
+      }
     } else if (result.code === 'unsupported') {
       // The server has machines turned off.
       store.setMachineEnvironmentSnapshots(environmentId, [])
@@ -114,6 +109,22 @@ export async function loadEnvironmentMachines(environmentId: string): Promise<vo
     if (error instanceof RuntimeRpcCallError && error.code === 'method_not_found') {
       store.setMachineEnvironmentSnapshots(environmentId, [])
     }
+  }
+}
+
+/**
+ * After a paired server ran an action: its returned record replaces the row, and anything else
+ * (a failure, an unreadable record) re-reads that server, since nothing pushes its changes here.
+ */
+export function applyEnvironmentMachineResult(
+  environmentId: string,
+  result: MachineActionResult<unknown>
+): void {
+  const machine = result.ok ? parseRemoteMachineRecord(result.value) : null
+  if (machine) {
+    useAppStore.getState().applyEnvironmentMachine(environmentId, machine)
+  } else {
+    void loadEnvironmentMachines(environmentId, { refresh: true })
   }
 }
 
@@ -127,17 +138,15 @@ function reachableEnvironmentIds(state: AppState): string[] {
 function refreshAllMachines(): void {
   refreshMachineProviders(VISIBLE_LIST_MAX_AGE_MS)
   for (const environmentId of reachableEnvironmentIds(useAppStore.getState())) {
-    void loadEnvironmentMachines(environmentId)
+    void loadEnvironmentMachines(environmentId, { refresh: true })
   }
 }
 
 export function hasMachineProviders(): boolean {
   const state = useAppStore.getState()
   return (
-    Object.keys(machineSlice(state).machineProviders).length > 0 ||
-    Object.values(machineSlice(state).machineEnvironmentProviders).some(
-      (snapshots) => snapshots.length > 0
-    )
+    Object.keys(state.machineProviders).length > 0 ||
+    Object.values(state.machineEnvironmentProviders).some((snapshots) => snapshots.length > 0)
   )
 }
 
@@ -145,10 +154,8 @@ function hasAnyMachine(state: AppState): boolean {
   const hasMachines = (snapshots: Iterable<MachineProviderSnapshot>): boolean =>
     [...snapshots].some((snapshot) => snapshot.machines.length > 0)
   return (
-    hasMachines(Object.values(machineSlice(state).machineProviders)) ||
-    Object.values(machineSlice(state).machineEnvironmentProviders).some((snapshots) =>
-      hasMachines(snapshots)
-    )
+    hasMachines(Object.values(state.machineProviders)) ||
+    Object.values(state.machineEnvironmentProviders).some((snapshots) => hasMachines(snapshots))
   )
 }
 
@@ -216,17 +223,14 @@ function selectMachineSources(
 }
 
 export function useMachineSources(): MachineSources {
-  const providers = useAppStore((state) => machineSlice(state).machineProviders)
-  const environments = useAppStore((state) => machineSlice(state).machineEnvironmentProviders)
+  const providers = useAppStore((state) => state.machineProviders)
+  const environments = useAppStore((state) => state.machineEnvironmentProviders)
   return selectMachineSources(providers, environments)
 }
 
 export function getMachineSources(): MachineSources {
   const state = useAppStore.getState()
-  return selectMachineSources(
-    machineSlice(state).machineProviders,
-    machineSlice(state).machineEnvironmentProviders
-  )
+  return selectMachineSources(state.machineProviders, state.machineEnvironmentProviders)
 }
 
 /** The machine a host runs on, or null for every other host. */

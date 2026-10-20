@@ -1,39 +1,11 @@
-import type { MachineState } from '../../../../shared/machine-inventory'
+import type { MachineDisplayState } from '../../../../shared/machine-display'
 import { translate } from '@/i18n/i18n'
 
-/** The one vocabulary the UI uses; provider states outside it fold into these. */
-export type MachineDisplayState =
-  | 'starting'
-  | 'running'
-  // A sleep or archive the provider accepted but has not finished.
-  | 'stopping'
-  | 'sleeping'
-  | 'archived'
-  | 'unreachable'
-  | 'gone'
-
-export function getMachineDisplayState(state: MachineState): MachineDisplayState {
-  switch (state) {
-    case 'creating':
-    case 'waking':
-      return 'starting'
-    case 'running':
-      return 'running'
-    case 'stopping':
-      return 'stopping'
-    case 'sleeping':
-      return 'sleeping'
-    case 'archived':
-      return 'archived'
-    case 'gone':
-      return 'gone'
-    // Why: an error or unknown verdict is not evidence the machine is gone; it needs attention.
-    case 'error':
-    case 'unknown':
-    case 'unreachable':
-      return 'unreachable'
-  }
-}
+export {
+  getMachineDisplayState,
+  machineNeedsWake,
+  type MachineDisplayState
+} from '../../../../shared/machine-display'
 
 export function getMachineDisplayStateLabel(state: MachineDisplayState): string {
   switch (state) {
@@ -47,15 +19,11 @@ export function getMachineDisplayStateLabel(state: MachineDisplayState): string 
       return translate('auto.lib.machines.machineDisplayState.sleeping', 'Sleeping')
     case 'archived':
       return translate('auto.lib.machines.machineDisplayState.archived', 'Archived')
+    case 'error':
+      return translate('auto.lib.machines.machineDisplayState.error', 'Error')
     case 'unreachable':
       return translate('auto.lib.machines.machineDisplayState.unreachable', 'Unreachable')
     case 'gone':
       return translate('auto.lib.machines.machineDisplayState.gone', 'Gone')
   }
-}
-
-/** Submitting on a stopped machine wakes it first; a running one is used as is. */
-export function machineNeedsWake(state: MachineState): boolean {
-  // A machine still going to sleep counts: main runs the wake once the sleep settles.
-  return state === 'sleeping' || state === 'archived' || state === 'stopping'
 }

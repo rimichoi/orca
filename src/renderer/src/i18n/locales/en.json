@@ -1318,7 +1318,8 @@
           "archived": "Archived",
           "unreachable": "Unreachable",
           "gone": "Gone",
-          "stopping": "Sleeping…"
+          "stopping": "Sleeping…",
+          "error": "Error"
         },
         "machineWakeOnOpen": {
           "wakeFailed": "Couldn’t wake {{name}}",

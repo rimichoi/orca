@@ -5,12 +5,10 @@ import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { machineNeedsWake } from './machine-display-state'
 import { describeMachineFailure } from './machine-copy'
-import { findMachineForHost, machineTargetKey, type MachineMatch } from './machine-host-match'
+import { findMachineForHost, type MachineMatch } from './machine-host-match'
 import { wakeMachine } from './machine-wake'
 
 type WakeOutcome = { ok: true } | { ok: false; code: MachineProviderErrorCode | null }
-
-const opensInFlight = new Map<string, Promise<WakeOutcome>>()
 
 async function wakeAndConnect(match: MachineMatch): Promise<WakeOutcome> {
   const target = { providerKey: match.snapshot.providerKey, machineId: match.machine.id }
@@ -35,7 +33,10 @@ function describeWakeFailure(code: MachineProviderErrorCode | null): string {
       )
 }
 
-/** One wake per machine, announced once: a toast only when no terminal can say it instead. */
+/**
+ * A wake announced once per machine: a toast only when no terminal can say it instead. The toast
+ * id is the machine's, so opening it twice while it wakes shows one toast.
+ */
 function startAnnouncedWake(
   match: MachineMatch,
   worktreeId: string | undefined
@@ -43,10 +44,12 @@ function startAnnouncedWake(
   const name = match.machine.name
   const store = useAppStore.getState()
   const hasTerminals = worktreeId ? (store.tabsByWorktree[worktreeId]?.length ?? 0) > 0 : false
+  const machineToastId = `machine-wake:${match.environmentId ?? 'local'}:${match.snapshot.providerKey}:${match.machine.id}`
   const toastId = hasTerminals
     ? undefined
     : toast.loading(
-        translate('auto.lib.machines.machineWakeOnOpen.waking', 'Waking {{name}}…', { name })
+        translate('auto.lib.machines.machineWakeOnOpen.waking', 'Waking {{name}}…', { name }),
+        { id: machineToastId }
       )
   return wakeAndConnect(match)
     .catch((): WakeOutcome => ({ ok: false, code: null }))
@@ -69,8 +72,8 @@ function startAnnouncedWake(
 }
 
 /**
- * Opening a worktree whose machine sleeps (or is archived) wakes it once; repeat opens while the
- * wake runs join it. Navigation never waits on this. The worktree is marked until wake and connect
+ * Opening a worktree whose machine sleeps (or is archived) wakes it; main joins repeat opens into
+ * the one wake already running. Navigation never waits on this. The worktree is marked until wake and connect
  * settle, so its terminals hold their attach and name the wake (or its failure) in one place.
  */
 export function wakeMachineForHost(
@@ -90,15 +93,7 @@ export function wakeMachineForHost(
   if (worktreeId) {
     store.setWorktreeMachineWake(worktreeId, { machineName, hostId, failure: null })
   }
-  const key = machineTargetKey({
-    providerKey: match.snapshot.providerKey,
-    machineId: match.machine.id
-  })
-  let run = opensInFlight.get(key)
-  if (!run) {
-    run = startAnnouncedWake(match, worktreeId).finally(() => opensInFlight.delete(key))
-    opensInFlight.set(key, run)
-  }
+  const run = startAnnouncedWake(match, worktreeId)
   return run.then((outcome) => {
     if (worktreeId) {
       useAppStore

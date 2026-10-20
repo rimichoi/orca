@@ -1120,7 +1120,8 @@
           "sleeping": "절전 중",
           "archived": "보관됨",
           "unreachable": "연결 불가",
-          "gone": "사라짐"
+          "gone": "사라짐",
+          "error": "오류"
         },
         "machineWakeOnOpen": {
           "wakeFailed": "{{name}}을(를) 깨울 수 없습니다",

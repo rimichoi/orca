@@ -4,43 +4,30 @@ import type {
   MachineTarget
 } from '../../../../shared/machine-inventory'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import { machineTargetKey } from './machine-host-match'
-
-const wakesInFlight = new Map<string, Promise<MachineActionResult<MachineRecord>>>()
-
-function startWake(
-  target: MachineTarget,
-  environmentId: string | null,
-  operationId: string | undefined
-): Promise<MachineActionResult<MachineRecord>> {
-  if (environmentId === null) {
-    return window.api.machines.wake({ ...target, ...(operationId ? { operationId } : {}) })
-  }
-  // Why: a paired server's provider wakes its own machine; this app only asks.
-  return callRuntimeRpc<MachineActionResult<MachineRecord>>(
-    { kind: 'environment', environmentId },
-    'machines.wake',
-    target
-  )
-}
+import { applyEnvironmentMachineResult } from '@/store/machines'
 
 /**
- * The one way the UI wakes a machine. Submitting the composer and opening a worktree on the same
- * machine join a single wake; a joiner's `operationId` gets no log lines of its own.
+ * The one way the UI wakes a machine. Concurrent wakes of one machine are joined by the main
+ * process that runs its provider (this app's, or a paired server's), so callers just ask.
  */
-export function wakeMachine(
+export async function wakeMachine(
   target: MachineTarget,
   options: { environmentId?: string | null; operationId?: string } = {}
 ): Promise<MachineActionResult<MachineRecord>> {
   const environmentId = options.environmentId ?? null
-  const key = `${environmentId ?? ''}\0${machineTargetKey(target)}`
-  const existing = wakesInFlight.get(key)
-  if (existing) {
-    return existing
+  if (environmentId === null) {
+    return window.api.machines.wake({
+      ...target,
+      ...(options.operationId ? { operationId: options.operationId } : {})
+    })
   }
-  const run = startWake(target, environmentId, options.operationId).finally(() =>
-    wakesInFlight.delete(key)
+  // Why: a paired server's provider wakes its own machine; this app only asks.
+  const result = await callRuntimeRpc<MachineActionResult<MachineRecord>>(
+    { kind: 'environment', environmentId },
+    'machines.wake',
+    target
   )
-  wakesInFlight.set(key, run)
-  return run
+  // Why: nothing pushes a paired server's changes here, so take the returned record now.
+  applyEnvironmentMachineResult(environmentId, result)
+  return result
 }

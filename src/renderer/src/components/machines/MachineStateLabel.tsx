@@ -14,7 +14,7 @@ export function MachineStateDot({ state }: { state: MachineDisplayState }): Reac
     <span
       aria-hidden="true"
       data-state={state}
-      className="size-1.5 shrink-0 self-center rounded-full data-[state=archived]:hidden data-[state=gone]:bg-destructive data-[state=running]:bg-status-success data-[state=sleeping]:ring-1 data-[state=sleeping]:ring-inset data-[state=sleeping]:ring-muted-foreground data-[state=unreachable]:bg-status-warning"
+      className="size-1.5 shrink-0 self-center rounded-full data-[state=archived]:hidden data-[state=error]:bg-destructive data-[state=gone]:bg-destructive data-[state=running]:bg-status-success data-[state=sleeping]:ring-1 data-[state=sleeping]:ring-inset data-[state=sleeping]:ring-muted-foreground data-[state=unreachable]:bg-status-warning"
     />
   )
 }
@@ -24,7 +24,7 @@ export function MachineStateLabel({ state }: { state: MachineDisplayState }): Re
   return (
     <span
       data-state={state}
-      className="inline-flex shrink-0 items-baseline gap-1.5 text-xs text-muted-foreground data-[state=gone]:text-destructive"
+      className="inline-flex shrink-0 items-baseline gap-1.5 text-xs text-muted-foreground data-[state=error]:text-destructive data-[state=gone]:text-destructive"
     >
       <MachineStateDot state={state} />
       {getMachineDisplayStateLabel(state)}

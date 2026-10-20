@@ -1119,7 +1119,8 @@
           "sleeping": "En reposo",
           "archived": "Archivada",
           "unreachable": "Inaccesible",
-          "gone": "Eliminada"
+          "gone": "Eliminada",
+          "error": "Error"
         },
         "machineWakeOnOpen": {
           "wakeFailed": "No se pudo activar {{name}}",

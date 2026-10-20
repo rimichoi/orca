@@ -14,13 +14,16 @@ const mocks = vi.hoisted(() => {
     state,
     callRuntimeRpc: vi.fn(),
     toastError: vi.fn(),
-    toastLoading: vi.fn(() => 'toast-1'),
+    toastLoading: vi.fn<(message: string, options?: { id?: string }) => string>(() => 'toast-1'),
     toastDismiss: vi.fn(),
     setWake: vi.fn()
   }
 })
 
-vi.mock('@/store/machines', () => ({ getMachineSources: () => mocks.state.sources }))
+vi.mock('@/store/machines', () => ({
+  getMachineSources: () => mocks.state.sources,
+  applyEnvironmentMachineResult: vi.fn()
+}))
 vi.mock('@/store', () => ({
   useAppStore: {
     getState: () => ({
@@ -68,15 +71,18 @@ beforeEach(() => {
 })
 
 describe('wakeMachineForHost', () => {
-  it('wakes and reconnects a sleeping machine, joining repeat opens', async () => {
+  it('wakes and reconnects a sleeping machine, with one toast for repeat opens', async () => {
     mocks.state.sources = { self: [snapshot({})], environments: {} }
 
     await Promise.all([wakeMachineForHost('ssh:machine-a'), wakeMachineForHost('ssh:machine-a')])
 
-    expect(machines.wake).toHaveBeenCalledTimes(1)
+    // Why: main joins the two asks into one provider wake; the renderer just asks.
     expect(machines.wake).toHaveBeenCalledWith({ providerKey: PROVIDER, machineId: 'box-1' })
-    expect(machines.connect).toHaveBeenCalledTimes(1)
-    expect(mocks.toastLoading).toHaveBeenCalledWith('Waking omarchy-dev…')
+    const toastIds = new Set(mocks.toastLoading.mock.calls.map((call) => call[1]?.id))
+    expect(toastIds.size).toBe(1)
+    expect(mocks.toastLoading).toHaveBeenCalledWith('Waking omarchy-dev…', {
+      id: expect.stringContaining('box-1')
+    })
     expect(mocks.toastDismiss).toHaveBeenCalledWith('toast-1')
   })
 
@@ -136,14 +142,14 @@ describe('wakeMachineForHost', () => {
 
   it('marks the worktree until wake and connect settle, so its terminals hold their attach', async () => {
     mocks.state.sources = { self: [snapshot({})], environments: {} }
-    mocks.state.tabsByWorktree = { 'wt-1': [{}] }
+    mocks.state.tabsByWorktree = { 'wt-1': [{}], 'wt-2': [{}] }
     let resolveConnect: (value: unknown) => void = () => {}
     machines.connect.mockReturnValueOnce(new Promise((resolve) => (resolveConnect = resolve)))
 
     const opening = wakeMachineForHost('ssh:machine-a', 'wt-1')
-    // Joining an in-flight wake still marks the second worktree.
+    // A second open while it wakes still marks its own worktree.
     const joining = wakeMachineForHost('ssh:machine-a', 'wt-2')
-    await vi.waitFor(() => expect(machines.connect).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(machines.connect).toHaveBeenCalled())
 
     expect(mocks.toastLoading).not.toHaveBeenCalled()
     expect(mocks.setWake).toHaveBeenCalledWith('wt-1', {
@@ -157,9 +163,8 @@ describe('wakeMachineForHost', () => {
     resolveConnect({ ok: true, value: { kind: 'ssh', sshTargetId: 'machine-a' } })
     await Promise.all([opening, joining])
 
-    expect(machines.wake).toHaveBeenCalledTimes(1)
     expect(mocks.setWake).toHaveBeenCalledWith('wt-1', null)
-    expect(mocks.setWake).toHaveBeenLastCalledWith('wt-2', null)
+    expect(mocks.setWake).toHaveBeenCalledWith('wt-2', null)
     mocks.state.tabsByWorktree = {}
   })
 

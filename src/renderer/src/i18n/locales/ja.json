@@ -1120,7 +1120,8 @@
           "sleeping": "スリープ中",
           "archived": "アーカイブ済み",
           "unreachable": "到達不能",
-          "gone": "削除済み"
+          "gone": "削除済み",
+          "error": "エラー"
         },
         "machineWakeOnOpen": {
           "wakeFailed": "{{name}} を起動できませんでした",

@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import type { MachineProviderSnapshot } from '../../../../shared/machine-inventory'
+import type { MachineProviderSnapshot, MachineRecord } from '../../../../shared/machine-inventory'
 import type { MachineChoice } from '@/lib/machines/machine-group-options'
 import type { AppState } from '../types'
 
@@ -29,6 +29,8 @@ export type MachinesSlice = {
     environmentId: string,
     snapshots: readonly MachineProviderSnapshot[]
   ) => void
+  /** A record a paired server returned from an action replaces its row there. */
+  applyEnvironmentMachine: (environmentId: string, machine: MachineRecord) => void
 }
 
 /** A snapshot replaces the held one only when it is at least as fresh. */
@@ -100,5 +102,25 @@ export const createMachinesSlice: StateCreator<AppState, [], [], MachinesSlice> 
               [environmentId]: snapshots
             }
           }
+    }),
+  applyEnvironmentMachine: (environmentId, machine) =>
+    set((state) => {
+      const held = state.machineEnvironmentProviders[environmentId]
+      if (!held?.some((snapshot) => snapshot.providerKey === machine.providerKey)) {
+        return {}
+      }
+      return {
+        machineEnvironmentProviders: {
+          ...state.machineEnvironmentProviders,
+          [environmentId]: held.map((snapshot) =>
+            snapshot.providerKey === machine.providerKey
+              ? {
+                  ...snapshot,
+                  machines: snapshot.machines.map((row) => (row.id === machine.id ? machine : row))
+                }
+              : snapshot
+          )
+        }
+      }
     })
 })

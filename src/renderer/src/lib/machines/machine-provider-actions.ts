@@ -26,7 +26,7 @@ export function openMachineProviderSettings(): void {
 
 /** Re-lists a provider now, skipping its failure backoff; the result arrives as a change push. */
 export function retryMachineProvider(providerKey: MachineProviderKey): void {
-  void window.api?.machines?.list({ providerKey, force: true })
+  void window.api.machines.list({ providerKey, force: true })
 }
 
 /** The active worktree, when it runs on this computer and so can host a local command. */
