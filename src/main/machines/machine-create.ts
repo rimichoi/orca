@@ -99,13 +99,7 @@ export class MachineCreateFlow {
           this.client.now()
         )
       })
-      // Resolves once the machine runs, so a created machine always has access.
-      return pollWhileMachineState(created, 'creating', {
-        read: () => this.deps.read(providerKey, created.id, onStderr),
-        delay: this.deps.delay,
-        now: () => this.client.now(),
-        deadline: startedAt + MACHINE_CREATE_RECONCILE_WINDOW_MS
-      })
+      return this.untilRunning(providerKey, created, startedAt, onStderr)
     } catch (error) {
       if (!isUnknownOutcome(error)) {
         this.client.commit(provider, (inventory) => dropPendingCreate(inventory, operationId))
@@ -117,12 +111,28 @@ export class MachineCreateFlow {
       }
       const found = await this.findCreated(provider, operationId)
       if (found) {
-        return found
+        // An adopted machine may still be creating; it is handed over once it runs, like any other.
+        return this.untilRunning(providerKey, found, startedAt)
       }
       throw error
     } finally {
       this.controllers.delete(operationId)
     }
+  }
+
+  /** Resolves once the machine runs, so a created machine always has access. */
+  private untilRunning(
+    providerKey: MachineProviderKey,
+    record: MachineRecord,
+    startedAt: number,
+    onStderr?: (chunk: string) => void
+  ): Promise<MachineRecord> {
+    return pollWhileMachineState(record, 'creating', {
+      read: () => this.deps.read(providerKey, record.id, onStderr),
+      delay: this.deps.delay,
+      now: () => this.client.now(),
+      deadline: startedAt + MACHINE_CREATE_RECONCILE_WINDOW_MS
+    })
   }
 
   /** Kills the local process; the pending row stays until a list proves what happened. */

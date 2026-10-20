@@ -13,8 +13,9 @@ export function isConfirmedMachineTransition(
   verb: MachineProviderVerb,
   state: ProviderMachineState
 ): boolean {
+  // Why never: only a `deleted`/`not-found` answer or a read that finds nothing proves a delete.
   if (verb === 'delete') {
-    return state !== 'running' && state !== 'waking'
+    return false
   }
   const confirmed = CONFIRMED_STATES[verb]
   return confirmed ? confirmed.includes(state) : true

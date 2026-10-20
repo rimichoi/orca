@@ -106,4 +106,47 @@ describe('MachineService lifecycle overlap', () => {
       expect.objectContaining({ state: 'gone', runtimeEnvironmentId: 'env-paired' })
     ])
   })
+
+  it('does not count a delete answered with a machine as done while the machine still exists', async () => {
+    const { service, removeSshTarget } = await setup({
+      list: inventory([machine()]),
+      delete: reply(machine({ state: 'unknown', access: undefined })),
+      get: reply(machine({ state: 'error', access: undefined }))
+    })
+    await service.list(KEY)
+    expect((await service.delete(KEY, 'sbx-1')).state).toBe('error')
+    expect(removeSshTarget).not.toHaveBeenCalled()
+  })
+
+  it('finishes a delete answered with a machine once a read finds nothing', async () => {
+    const { service, removeSshTarget } = await setup({
+      list: inventory([machine()]),
+      delete: reply(machine({ state: 'error', access: undefined })),
+      get: fail('not-found')
+    })
+    await service.list(KEY)
+    expect((await service.delete(KEY, 'sbx-1')).state).toBe('gone')
+    expect(removeSshTarget).toHaveBeenCalledTimes(1)
+  })
+
+  it('follows a timed-out create it adopts while the machine is still creating', async () => {
+    const { service, delay } = await setup({
+      create: fail('timeout'),
+      list: [
+        inventory([]),
+        inventory([
+          machine({ state: 'creating', access: undefined, creatingOperationId: 'op-adopt' })
+        ])
+      ],
+      get: [reply(machine({ state: 'creating', access: undefined })), reply(machine())]
+    })
+    await service.list(KEY)
+    const record = await service.create(
+      KEY,
+      { name: 'dev', lifetime: 'persistent' },
+      { operationId: 'op-adopt' }
+    )
+    expect(record).toMatchObject({ state: 'running', access: { kind: 'ssh' } })
+    expect(delay).toHaveBeenCalledWith(3_000)
+  })
 })

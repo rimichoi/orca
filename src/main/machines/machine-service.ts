@@ -292,8 +292,8 @@ export class MachineService {
   ): Promise<MachineRecord> {
     this.client.commit(provider, (inventory) => markUnreachable(inventory, machineId, reason))
     const record = await this.get(provider.providerKey, machineId)
-    // A delete the read confirms still owes its cleanup.
-    return verb === 'delete' && (record.state === 'gone' || record.state === 'unknown')
+    // A delete the read confirms (the machine is gone) still owes its cleanup.
+    return verb === 'delete' && record.state === 'gone'
       ? this.finishDelete(provider, machineId)
       : record
   }

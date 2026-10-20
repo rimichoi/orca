@@ -224,7 +224,8 @@ describe('isConfirmedMachineTransition', () => {
     expect(isConfirmedMachineTransition('sleep', 'running')).toBe(false)
     expect(isConfirmedMachineTransition('archive', 'archived')).toBe(true)
     expect(isConfirmedMachineTransition('delete', 'running')).toBe(false)
-    expect(isConfirmedMachineTransition('delete', 'unknown')).toBe(true)
+    // Only a deleted or not-found answer, or a read that finds nothing, proves a delete.
+    expect(isConfirmedMachineTransition('delete', 'unknown')).toBe(false)
   })
 })
 
