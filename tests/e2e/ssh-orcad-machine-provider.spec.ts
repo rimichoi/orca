@@ -1,7 +1,7 @@
 /**
  * A machine provider plugin end to end against real Docker SSH hosts: consent shows its argv, then
- * create, connect with provider-pinned host keys, sleep, wake on a remapped port, and delete. The
- * composer, sidebar and pane journey stacks on this once the Machines UI lands.
+ * create, connect with provider-pinned host keys, sleep, wake on a remapped port, and delete,
+ * through the machines API. ssh-orcad-machine-ui-journey.spec.ts drives the same fixture by UI.
  */
 import { randomUUID } from 'node:crypto'
 import type { MachineActionResult, MachineRecord } from '../../src/shared/machine-inventory'
