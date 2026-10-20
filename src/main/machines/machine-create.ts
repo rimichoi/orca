@@ -54,9 +54,15 @@ export class MachineCreateFlow {
     if (inFlight) {
       return inFlight
     }
-    const flight = this.run(providerKey, params, operationId).finally(() =>
+    // Why before any await: a cancel that arrives while capabilities load must still stop the create.
+    const controller = new AbortController()
+    this.controllers.set(operationId, controller)
+    const flight = this.run(providerKey, params, operationId, controller).finally(() => {
       this.flights.delete(operationId)
-    )
+      if (this.controllers.get(operationId) === controller) {
+        this.controllers.delete(operationId)
+      }
+    })
     this.flights.set(operationId, flight)
     return flight
   }
@@ -64,10 +70,15 @@ export class MachineCreateFlow {
   private async run(
     providerKey: MachineProviderKey,
     params: MachineCreateParams,
-    operationId: string
+    operationId: string,
+    controller: AbortController
   ): Promise<MachineRecord> {
     const provider = this.client.provider(providerKey)
     assertCreateParams(await this.client.capabilities(provider), params)
+    // Nothing was asked of the provider yet, so a cancel here leaves nothing to reconcile.
+    if (controller.signal.aborted) {
+      throw new MachineProviderError('cancelled', 'The create was canceled before it started.')
+    }
     const startedAt = this.client.now()
     this.client.commit(provider, (inventory) =>
       inventory.pendingCreates.push({
@@ -77,8 +88,6 @@ export class MachineCreateFlow {
         lifetime: params.lifetime
       })
     )
-    const controller = new AbortController()
-    this.controllers.set(operationId, controller)
     try {
       const onStderr = this.client.progress(provider, 'create', operationId)
       const machine = await this.client.callForMachine(provider, 'create', {
@@ -115,8 +124,6 @@ export class MachineCreateFlow {
         return this.untilRunning(providerKey, found, startedAt)
       }
       throw error
-    } finally {
-      this.controllers.delete(operationId)
     }
   }
 

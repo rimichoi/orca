@@ -3,6 +3,7 @@ import { encodePairingOffer } from '../../shared/pairing'
 import { MachineService } from './machine-service'
 import {
   KEY,
+  capabilities,
   fail,
   inventory,
   machine,
@@ -148,5 +149,23 @@ describe('MachineService lifecycle overlap', () => {
     )
     expect(record).toMatchObject({ state: 'running', access: { kind: 'ssh' } })
     expect(delay).toHaveBeenCalledWith(3_000)
+  })
+
+  it('stops a create canceled while capabilities load, before asking the provider', async () => {
+    const loading = heldReply(capabilities)
+    const { service, verbs } = await setup({
+      capabilities: loading.handler,
+      create: reply(machine())
+    })
+    const created = service.create(
+      KEY,
+      { name: 'dev', lifetime: 'persistent' },
+      { operationId: 'op-cancel' }
+    )
+    expect(service.cancelCreate('op-cancel')).toBe(true)
+    loading.release()
+    await expect(created).rejects.toMatchObject({ code: 'cancelled' })
+    expect(verbs()).not.toContain('create')
+    expect(service.snapshots()[0]?.pendingCreates ?? []).toEqual([])
   })
 })
