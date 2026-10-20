@@ -1,8 +1,5 @@
-import {
-  MachineProviderError,
-  isConfirmedMachineTransition,
-  type ProviderMachine
-} from '../../shared/machine-provider-protocol'
+import { MachineProviderError, type ProviderMachine } from '../../shared/machine-provider-protocol'
+import { isConfirmedMachineTransition } from '../../shared/machine-provider-transitions'
 import type {
   MachineConnection,
   MachineProviderKey,
@@ -100,12 +97,8 @@ export class MachineService {
       return inFlight
     }
     // A forced list must start after anything it follows (a create, a cancel), not join an older one.
-    const start = inFlight
-      ? inFlight.then(
-          () => this.runList(provider),
-          () => this.runList(provider)
-        )
-      : this.runList(provider)
+    const run = (): Promise<MachineProviderSnapshot> => this.runList(provider)
+    const start = inFlight ? inFlight.then(run, run) : run()
     const flight = start.finally(() => {
       if (this.listFlights.get(providerKey) === flight) {
         this.listFlights.delete(providerKey)
@@ -143,10 +136,15 @@ export class MachineService {
     machineId: string,
     options: { operationId?: string } = {}
   ): Promise<MachineRecord> {
+    const start = (): Promise<MachineRecord> =>
+      this.mutate(providerKey, machineId, 'wake', options.operationId)
+    // Opening a worktree right after Sleep waits out the sleep (or archive), then wakes.
+    const flight = this.mutationFlights.get(`${providerKey}\0${machineId}`)
+    const after = flight && flight.verb !== 'wake' && flight.verb !== 'delete' ? flight : null
     return this.connections.trackWake(
       providerKey,
       machineId,
-      this.mutate(providerKey, machineId, 'wake', options.operationId)
+      after ? after.done.then(start, start) : start()
     )
   }
 
@@ -277,7 +275,7 @@ export class MachineService {
     const record = this.client.commit(provider, (inventory) =>
       applyMachine(inventory, providerKey, machine, this.client.now())
     )
-    return pollWhileMachineState(record, 'waking', {
+    return pollWhileMachineState(record, verb === 'wake' ? 'waking' : 'stopping', {
       read: async () => (await this.fetch(providerKey, machineId, onStderr)).record,
       delay: (ms) => this.delay(ms),
       now: () => this.client.now(),

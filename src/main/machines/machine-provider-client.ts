@@ -108,13 +108,13 @@ export class MachineProviderClient {
     if (!retire) {
       return
     }
-    for (const machine of inventory.machines) {
-      const environmentId = machine.managedEnvironmentId
-      if (
-        machine.state === 'gone' &&
-        environmentId &&
-        !this.retiredEnvironments.has(environmentId)
-      ) {
+    // A gone SSH machine's deployed server, or the paired server an orca-server machine ran.
+    const gone = inventory.machines.filter((machine) => machine.state === 'gone')
+    for (const environmentId of gone.flatMap((machine) => [
+      machine.managedEnvironmentId,
+      machine.runtimeEnvironmentId
+    ])) {
+      if (environmentId && !this.retiredEnvironments.has(environmentId)) {
         this.retiredEnvironments.add(environmentId)
         try {
           retire(environmentId)
