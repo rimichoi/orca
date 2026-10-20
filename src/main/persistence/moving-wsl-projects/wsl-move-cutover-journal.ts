@@ -206,7 +206,24 @@ export function removeWslMoveCutover(userDataPath: string, migrationId: string):
   ) {
     throw new Error('wsl_move_in_flight')
   }
-  journals.remove(userDataPath, migrationId)
+  removeNewestInChain(userDataPath, record)
+}
+
+/**
+ * Only the newest move of a distro goes: a later move names this one as what it supersedes, so
+ * removing it would break the chain and leave every project of that distro unreadable.
+ */
+function removeNewestInChain(userDataPath: string, record: WslMoveCutover | undefined): void {
+  if (!record) {
+    return
+  }
+  if (
+    listWslMoveCutoverChain(userDataPath, record.journalKey).at(-1)?.migrationId !==
+    record.migrationId
+  ) {
+    throw new Error('wsl_move_superseded')
+  }
+  journals.remove(userDataPath, record.migrationId)
 }
 
 /**
@@ -224,5 +241,5 @@ export function removeUncommittedWslMoveCutover(userDataPath: string, migrationI
   ) {
     throw new Error('wsl_move_committed')
   }
-  journals.remove(userDataPath, migrationId)
+  removeNewestInChain(userDataPath, record)
 }
