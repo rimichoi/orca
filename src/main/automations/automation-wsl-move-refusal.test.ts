@@ -17,6 +17,12 @@ import {
   loadWslMoveFence,
   resetWslMoveFenceForTests
 } from '../persistence/moving-wsl-projects/wsl-move-scope-guard'
+import { runWslMoveDesktopRewritePass } from '../persistence/moving-wsl-projects/wsl-move-desktop-rewrite'
+import { resetWslMoveDesktopRewriteStoresForTests } from '../persistence/moving-wsl-projects/wsl-move-desktop-rewrite-stores'
+import { registerWslMoveMainRewriteStores } from '../persistence/moving-wsl-projects/wsl-move-main-rewrite-stores'
+import { registerWslMoveOrchestrationHistoryStore } from '../persistence/moving-wsl-projects/wsl-move-orchestration-history-rewrite'
+import { orchestrationDbFile } from '../runtime/orchestration/db/orchestration-db-file'
+import { WSL_HOSTS_INTERNAL_GATE_ENV } from '../../shared/wsl-host-internal-gate'
 import { AutomationService } from './service'
 import { WSL_MOVE_IN_PROGRESS, WSL_MOVE_OWNED_BY_HOST } from './dispatch-refusal'
 import type * as PrecheckRunner from './precheck-runner'
@@ -149,6 +155,32 @@ describe('scheduled automations under a WSL move', () => {
     expect(WSL_MOVE_OWNED_BY_HOST).toBe(
       "This automation's project now runs on its WSL host, which runs this automation there. Orca no longer runs this local copy."
     )
+  })
+
+  it('keeps the local copy unchanged through the desktop rewrite, so it neither runs nor loses its next run', async () => {
+    vi.setSystemTime(new Date('2026-05-13T08:00:00'))
+    vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '1')
+    const store = await createStore()
+    const automation = seedAutomation(store)
+    seedWslMoveCutover(
+      fenceDir,
+      cutover('move-1', 'destination-committed', {}, { repoIds: ['r1'] })
+    )
+    registerWslMoveMainRewriteStores(store)
+    registerWslMoveOrchestrationHistoryStore(orchestrationDbFile(fenceDir))
+    try {
+      await runWslMoveDesktopRewritePass({ userDataPath: fenceDir })
+      expect(store.listAutomations()).toEqual([automation])
+      const service = attachedService(store)
+
+      await evaluateAt(store, service, automation.id, '2026-05-13T09:01:00')
+
+      expect(store.listAutomationRuns(automation.id)).toEqual([])
+      expect(store.listAutomations()[0]?.nextRunAt).toBe(new Date('2026-05-14T09:00:00').getTime())
+    } finally {
+      resetWslMoveDesktopRewriteStoresForTests()
+      vi.unstubAllEnvs()
+    }
   })
 
   it('skips, not fails, a headless run whose move starts during the precheck', async () => {
