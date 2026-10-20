@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import {
   MachineProviderError,
-  isConfirmedMachineTransition,
   type MachineLifetime,
   type MachineProviderCapabilities
 } from '../../shared/machine-provider-protocol'
+import { isConfirmedMachineTransition } from '../../shared/machine-provider-transitions'
 import {
   MACHINE_CREATE_RECONCILE_WINDOW_MS,
   type MachineProviderKey,
