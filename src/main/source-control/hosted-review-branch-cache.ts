@@ -154,7 +154,10 @@ export function invalidateHostedReviewBranchCache(
   repoPath: string,
   executionHostId: ExecutionHostId
 ): void {
-  const scope = hostedReviewRepoScope(repoPath, executionHostId)
+  invalidateScope(hostedReviewRepoScope(repoPath, executionHostId))
+}
+
+function invalidateScope(scope: string): void {
   bumpScopeGeneration(scope)
   const prefix = `${scope}${KEY_SEPARATOR}`
   for (const key of entries.keys()) {
@@ -164,6 +167,22 @@ export function invalidateHostedReviewBranchCache(
   }
   retireInflightWithPrefix(prefix)
   dropFailuresWithPrefix(prefix)
+}
+
+/**
+ * Drops every cached answer. Called when a provider credential changes: a lookup
+ * that now fails would otherwise keep serving the answer the old credential got.
+ */
+export function invalidateAllHostedReviewBranchCaches(): void {
+  // A key starts with the two-part repo scope (host, path); NUL cannot occur inside either.
+  const scopes = new Set(
+    [...entries.keys()].map((key) => key.split(KEY_SEPARATOR, 2).join(KEY_SEPARATOR))
+  )
+  for (const scope of scopes) {
+    invalidateScope(scope)
+  }
+  retireInflightWithPrefix('')
+  dropFailuresWithPrefix('')
 }
 
 /** @internal - exposed for tests only */
