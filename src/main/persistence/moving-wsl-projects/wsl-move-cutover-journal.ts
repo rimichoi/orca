@@ -14,6 +14,7 @@ import {
   createMigrationJournalDirectory,
   orderMigrationJournalChain
 } from '../migrating-orcad-catalog/migration-journal-directory'
+import { assertWslMoveManifestFits } from './wsl-move-manifest-budget'
 import {
   isWslMoveDesktopRewriteRegistryComplete,
   pendingWslMoveDesktopRewriteStores
@@ -108,6 +109,10 @@ export function writeWslMoveCutover(userDataPath: string, cutover: WslMoveCutove
   }
   if (!existing && parsed.rewrittenStores.length > 0) {
     throw new Error('wsl_move_ledger_changed')
+  }
+  if (!existing) {
+    // New moves only: a record already on disk must stay resumable whatever its size.
+    assertWslMoveManifestFits(parsed.manifest)
   }
   if (existing) {
     assertWslMoveUpdate(existing, parsed, head)

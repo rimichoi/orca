@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,7 +18,7 @@ import {
 import { computeOrcadMigrationManifestSha256 } from '../../orcad/orcad-migration-manifest-digest'
 import { wslMoveCutoverFixture } from '../__fixtures__/wsl-mover/wsl-move-cutover-fixture'
 import { seedWslMoveCutover } from '../__fixtures__/wsl-mover/wsl-move-journal-seeding'
-import { listWslMoveCutovers } from './wsl-move-cutover-journal'
+import { listWslMoveCutovers, wslMoveJournalDirectory } from './wsl-move-cutover-journal'
 import { resolveWslMoveFence } from './wsl-move-fence'
 import {
   assertWslMoveCommitRequestAllowed,
@@ -68,7 +68,7 @@ function state(
 
 function host(
   catalog: { current: 'absent' | 'staged' | 'committed' },
-  options: { refuseInline?: boolean } = {}
+  options: { refuseInline?: boolean; durableCommitted?: boolean } = {}
 ): {
   destination: OrcadMigrationDestinationCatalog
   calls: string[]
@@ -105,9 +105,13 @@ function host(
           catalog.current = 'absent'
         }
         const ids = { migrationId: manifest.migrationId, manifestSha256: manifest.manifestSha256 }
-        return catalog.current === 'committed'
-          ? { ...ids, state: 'committed', aborted: false }
-          : { ...ids, state: 'absent', aborted }
+        if (catalog.current === 'committed') {
+          // An older host omits the flag: its committed answer may not be flushed yet.
+          return options.durableCommitted === false
+            ? { ...ids, state: 'committed', aborted: false }
+            : { ...ids, state: 'committed', aborted: false, durableCommitted: true }
+        }
+        return { ...ids, state: 'absent', aborted, durableAbsent: true }
       },
       stageChunk: async () => {
         throw new Error('not used')
@@ -124,8 +128,8 @@ function assertCarried(manifest: OrcadMigrationManifest, refuse = false): void {
 }
 
 /**
- * The widest gap the validators allow: under the manifest cap, so the journal accepts it, yet over
- * what one request can carry. A move can be journaled with it, so a reset must still abort it.
+ * The widest gap the validators allow: under the manifest cap, so the journal still reads it, yet
+ * over what one request can carry. New moves are refused this size; older records may hold it.
  */
 function seedOversized(phase: WslMoveCutoverPhase): void {
   const base = wslMoveCutoverFixture('move-1', phase)
@@ -147,11 +151,16 @@ function seedOversized(phase: WslMoveCutoverPhase): void {
   expect(JSON.stringify({ manifest }).length).toBeGreaterThan(
     ORCAD_MIGRATION_REQUEST_PARAMS_BUDGET_BYTES
   )
-  seedWslMoveCutover(userDataPath, {
-    ...base,
-    manifestSha256: manifest.manifestSha256,
-    manifest: { ...manifest, source: base.manifest.source }
-  })
+  // Written past the journal's size cap on purpose: a record from before the cap must still reset.
+  seedWslMoveCutover(userDataPath, base)
+  writeFileSync(
+    join(wslMoveJournalDirectory(userDataPath), `${base.migrationId}.json`),
+    JSON.stringify({
+      ...base,
+      manifestSha256: manifest.manifestSha256,
+      manifest: { ...manifest, source: base.manifest.source }
+    })
+  )
 }
 
 const fenced = (): boolean => resolveWslMoveFence(userDataPath).fenced.repoIds.has('repo-1')
@@ -236,6 +245,17 @@ describe('resetWslMoveToZero', () => {
     )
     expect(calls).toEqual(['abort-by-reference'])
     expect(resolveWslMoveFence(userDataPath).hidden.repoIds.has('repo-1')).toBe(true)
+  })
+
+  it('never moves forward on a committed answer the host did not flush first', async () => {
+    seedOversized('blobs-transferred')
+    const { destination } = host({ current: 'committed' }, { durableCommitted: false })
+    expect(await resetWslMoveToZero({ userDataPath, destination }, 'move-1')).toEqual({
+      outcome: 'unverifiable',
+      reason: 'commit_not_proven_durable'
+    })
+    expect(fenced()).toBe(true)
+    expect(listWslMoveCutovers(userDataPath)[0]?.phase).toBe('blobs-transferred')
   })
 
   it('keeps an oversized move fenced on a commit no request could have made', async () => {

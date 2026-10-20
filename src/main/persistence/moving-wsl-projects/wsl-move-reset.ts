@@ -130,7 +130,10 @@ async function resetByReference(
   if (!commitMayExist) {
     return { outcome: 'unverifiable', reason: 'committed_without_commit_request' }
   }
-  // commit() cannot carry this manifest to confirm, so the host's receipt is the evidence, as for SSH.
+  // commit() cannot carry this manifest; only a receipt the host flushed before answering counts.
+  if (aborted.durableCommitted !== true) {
+    return { outcome: 'unverifiable', reason: 'commit_not_proven_durable' }
+  }
   return { outcome: 'committed', cutover: recordCommitted(context, cutover) }
 }
 
