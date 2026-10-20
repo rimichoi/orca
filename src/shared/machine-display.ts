@@ -4,17 +4,20 @@
  * Labels stay with each surface's own translation catalog.
  */
 
-export type MachineDisplayState =
-  | 'starting'
-  | 'running'
+export const MACHINE_DISPLAY_STATES = [
+  'starting',
+  'running',
   // A sleep or archive the provider accepted but has not finished.
-  | 'stopping'
-  | 'sleeping'
-  | 'archived'
+  'stopping',
+  'sleeping',
+  'archived',
   // The provider reports a fault; unlike lost contact, Delete still reaches it.
-  | 'error'
-  | 'unreachable'
-  | 'gone'
+  'error',
+  'unreachable',
+  'gone'
+] as const
+
+export type MachineDisplayState = (typeof MACHINE_DISPLAY_STATES)[number]
 
 export type MachineAction = 'wake' | 'sleep' | 'archive' | 'copy-ssh' | 'refresh' | 'delete'
 
@@ -55,12 +58,12 @@ const DELETABLE: ReadonlySet<MachineDisplayState> = new Set([
  */
 export function getMachineActions(input: {
   state: string
-  /** The provider's `capabilities.verbs`; empty when unknown, which offers nothing verb-backed. */
-  verbs: readonly string[]
+  /** The provider's `capabilities.verbs`; undefined (a snapshot without them) offers nothing verb-backed. */
+  verbs: readonly string[] | undefined
   local: boolean
   sshCommandAvailable: boolean
 }): MachineAction[] {
-  const verbs = new Set(input.verbs)
+  const verbs = new Set(input.verbs ?? [])
   const state = getMachineDisplayState(input.state)
   const actions: MachineAction[] = []
   if ((state === 'sleeping' || state === 'archived') && verbs.has('wake')) {

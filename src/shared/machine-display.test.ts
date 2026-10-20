@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { getMachineActions, getMachineDisplayState, machineNeedsWake } from './machine-display'
+import {
+  MACHINE_DISPLAY_STATES,
+  getMachineActions,
+  getMachineDisplayState,
+  machineNeedsWake
+} from './machine-display'
 
 const ALL = ['create', 'sleep', 'wake', 'archive', 'delete', 'get']
 const local = (state: string, verbs: readonly string[] = ALL) =>
@@ -12,6 +17,23 @@ describe('getMachineDisplayState', () => {
     expect(getMachineDisplayState('stopping')).toBe('stopping')
     expect(getMachineDisplayState('error')).toBe('error')
     expect(getMachineDisplayState('unknown')).toBe('unreachable')
+  })
+
+  it('maps every provider state into the listed display states', () => {
+    for (const state of [
+      'creating',
+      'running',
+      'stopping',
+      'sleeping',
+      'waking',
+      'archived',
+      'error',
+      'unknown',
+      'unreachable',
+      'gone'
+    ]) {
+      expect(MACHINE_DISPLAY_STATES).toContain(getMachineDisplayState(state))
+    }
   })
 
   it('reads a state this build does not know as unreachable, never undefined', () => {
@@ -36,6 +58,14 @@ describe('getMachineActions', () => {
 
   it('offers no verb the provider does not declare', () => {
     expect(local('running', [])).toEqual(['refresh'])
+    expect(
+      getMachineActions({
+        state: 'running',
+        verbs: undefined,
+        local: true,
+        sshCommandAvailable: false
+      })
+    ).toEqual(['refresh'])
     expect(local('sleeping', ['get', 'wake'])).toEqual(['wake', 'refresh'])
   })
 
