@@ -2,13 +2,13 @@ import type { TerminalLayoutSnapshot } from '../../../shared/terminal-tab-types'
 import type { SessionReadTerminalScrollbackResult } from '../../../shared/rpc-contract/session-terminal-scrollback-params'
 import { SESSION_TERMINAL_SCROLLBACK_READ_RUNTIME_CAPABILITY } from '../../../shared/session-tabs-runtime-capabilities'
 import { useAppStore } from '@/store'
-import { getExplicitRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { runtimeEnvironmentIdForWorkspaceOwner } from '@/lib/resolve-owner'
 import {
   callRuntimeRpc,
   peekRuntimeEnvironmentCapability,
   runtimeEnvironmentSupportsCapability
 } from './runtime-rpc-client'
-import { hasRuntimeRpcErrorCode } from './runtime-rpc-result'
+import { hasRuntimeRpcErrorCode } from '../../../shared/runtime-rpc-error-code'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import { hasRegisteredRuntimeTerminalTab } from './mounted-terminal-tab-registry'
 
@@ -61,8 +61,13 @@ const defaultDeps: HostTerminalScrollbackHydrationDeps = {
       localOnly: state.localOnlyScrollbackByTabId[tabId]
     }
   },
-  resolveEnvironmentId: (worktreeId) =>
-    getExplicitRuntimeEnvironmentIdForWorktree(useAppStore.getState(), worktreeId),
+  resolveEnvironmentId: (worktreeId) => {
+    const owner = runtimeEnvironmentIdForWorkspaceOwner(useAppStore.getState(), {
+      workspaceId: worktreeId
+    })
+    // Why null for a twin: no single host owns the stored scrollback, so the pane paints locally.
+    return owner.kind === 'resolved' ? owner.environmentId : null
+  },
   hasLocalSnapshot: (ref) => {
     try {
       return window.api.session.hasTerminalScrollback({ ref })
