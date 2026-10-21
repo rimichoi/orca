@@ -16623,9 +16623,6 @@
             },
             "sectionStale": {
               "notice": "This file changed on disk since this section loaded."
-            },
-            "divergentDrafts": {
-              "notice": "Autosave is paused because another tab of this file has different unsaved edits. Save the version you want to keep."
             }
           }
         },
@@ -20628,7 +20625,17 @@
   "tabHoverCard": {
     "browser": "Browser",
     "editor": "Editor",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "namingFailure": {
+      "regenerating": "Regenerating…",
+      "regenerate": "Regenerate name",
+      "title": "Couldn't name this chat",
+      "description": "The chat-name agent stopped with an error, so the chat keeps its first message as its name.",
+      "viewError": "view error",
+      "dialogTitle": "Chat auto-name failed",
+      "dialogDescriptionStart": "Orca couldn't generate a name for",
+      "dialogDescriptionEnd": "from its first message."
+    }
   },
   "updates": {
     "installBlock": {

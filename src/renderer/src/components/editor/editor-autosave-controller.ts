@@ -3,7 +3,6 @@ import {
   ORCA_EDITOR_QUIESCE_FILE_SAVES_EVENT,
   ORCA_EDITOR_SAVE_AND_CLOSE_EVENT,
   ORCA_EDITOR_SAVE_FILE_EVENT,
-  type EditorPathMutationTarget,
   type EditorSaveAndCloseDetail,
   type EditorSaveFileDetail,
   type EditorSaveQuiesceDetail
@@ -34,7 +33,6 @@ export function attachEditorAutosaveController(store: AppStoreApi): () => void {
     clearAutoSaveTimer,
     bumpSaveGeneration,
     holdAutoSave,
-    releaseAutoSaveHold,
     syncAutoSave
   } = saveQueue
 
@@ -44,20 +42,11 @@ export function attachEditorAutosaveController(store: AppStoreApi): () => void {
     quiesceFileSave
   })
 
-  const resetTabsOnExternalChange = createEditorExternalChangeTabReset({
+  const handleExternalFileChange = createEditorExternalChangeTabReset({
     store,
     clearAutoSaveTimer,
     bumpSaveGeneration
   })
-  // Why after the reset: it marks dirty tabs changed-on-disk first, so the released timer stays off.
-  const handleExternalFileChange = (event: Event): void => {
-    resetTabsOnExternalChange(event)
-    const detail: EditorPathMutationTarget | undefined =
-      event instanceof CustomEvent ? event.detail : undefined
-    if (detail) {
-      releaseAutoSaveHold(pathMutationSaveKeys(store.getState(), detail))
-    }
-  }
 
   const handleSaveAndClose = async (event: Event): Promise<void> => {
     if (!(event instanceof CustomEvent)) {
@@ -143,7 +132,7 @@ export function attachEditorAutosaveController(store: AppStoreApi): () => void {
       // Why: a git discard rewrites the file under every workspace showing it, and the guarded
       // write's compare fallback (older hosts) can't refuse a save that read disk just before git.
       const keys = pathMutationSaveKeys(state, detail)
-      holdAutoSave(keys)
+      detail.onHold?.(holdAutoSave(keys))
       matchingFiles = state.openFiles.filter((file) => keys.has(editorSaveKeyOfFile(state, file)))
     }
 

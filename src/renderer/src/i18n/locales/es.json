@@ -16343,9 +16343,6 @@
             },
             "sectionStale": {
               "notice": "This file changed on disk since this section loaded."
-            },
-            "divergentDrafts": {
-              "notice": "Autosave is paused because another tab of this file has different unsaved edits. Save the version you want to keep."
             }
           }
         },
@@ -20470,7 +20467,17 @@
   "tabHoverCard": {
     "browser": "Navegador",
     "editor": "Editor",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "namingFailure": {
+      "regenerating": "Regenerando…",
+      "regenerate": "Regenerar nombre",
+      "title": "No se pudo nombrar este chat",
+      "description": "El agente de nombres de chat se detuvo con un error, así que el chat conserva su primer mensaje como nombre.",
+      "viewError": "ver error",
+      "dialogTitle": "Falló el nombre automático del chat",
+      "dialogDescriptionStart": "Orca no pudo generar un nombre para",
+      "dialogDescriptionEnd": "a partir de su primer mensaje."
+    }
   },
   "updates": {
     "installBlock": {

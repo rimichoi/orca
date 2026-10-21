@@ -16348,9 +16348,6 @@
             },
             "sectionStale": {
               "notice": "This file changed on disk since this section loaded."
-            },
-            "divergentDrafts": {
-              "notice": "Autosave is paused because another tab of this file has different unsaved edits. Save the version you want to keep."
             }
           }
         },
@@ -20482,7 +20479,17 @@
   "tabHoverCard": {
     "browser": "브라우저",
     "editor": "편집기",
-    "terminal": "터미널"
+    "terminal": "터미널",
+    "namingFailure": {
+      "regenerating": "다시 생성 중…",
+      "regenerate": "이름 다시 생성",
+      "title": "이 채팅의 이름을 지정하지 못했습니다",
+      "description": "채팅 이름 에이전트가 오류로 중지되어, 채팅은 첫 메시지를 이름으로 유지합니다.",
+      "viewError": "오류 보기",
+      "dialogTitle": "채팅 자동 이름 지정 실패",
+      "dialogDescriptionStart": "Orca가",
+      "dialogDescriptionEnd": "의 이름을 첫 메시지로부터 생성하지 못했습니다."
+    }
   },
   "jira": {
     "savedFilters": {

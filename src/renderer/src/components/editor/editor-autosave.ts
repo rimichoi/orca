@@ -41,6 +41,8 @@ export type EditorSaveQuiesceTarget = { fileId: string } | EditorPathMutationTar
 export type EditorSaveQuiesceDetail = EditorSaveQuiesceTarget & {
   claim: () => void
   resolve: () => void
+  /** A path quiesce holds autosave of that file in every workspace until this release runs. */
+  onHold?: (release: () => void) => void
 }
 
 export type EditorSaveFileTarget = {
@@ -172,7 +174,11 @@ export function getOpenFilesForExternalFileChange(
   })
 }
 
-export async function requestEditorSaveQuiesce(target: EditorSaveQuiesceTarget): Promise<void> {
+/** Resolves to a release for the autosave hold a path quiesce takes; call it once git finishes. */
+export async function requestEditorSaveQuiesce(
+  target: EditorSaveQuiesceTarget
+): Promise<() => void> {
+  let release = (): void => {}
   await new Promise<void>((resolve) => {
     let claimed = false
     window.dispatchEvent(
@@ -182,7 +188,10 @@ export async function requestEditorSaveQuiesce(target: EditorSaveQuiesceTarget):
           claim: () => {
             claimed = true
           },
-          resolve
+          resolve,
+          onHold: (hold) => {
+            release = hold
+          }
         }
       })
     )
@@ -193,6 +202,7 @@ export async function requestEditorSaveQuiesce(target: EditorSaveQuiesceTarget):
       resolve()
     }
   })
+  return release
 }
 
 export async function requestEditorFileSave(target: EditorSaveFileTarget): Promise<void> {

@@ -8,83 +8,79 @@ import {
   type EditorPathMutationTarget
 } from './editor-autosave'
 import { editorTabModelUri } from './editor-save-disk-precondition'
+import { toEditorModelUri } from './editor-model-uri'
+import { resolveEditorModelOwner, resolvedEditorModelOwnerKey } from './editor-model-owner'
 
 /** Edit tabs share their model's save queue, timer and generation; any other tab keeps its own. */
 export function editorSaveKeyOfFile(state: AppState, file: OpenFile): string {
   return file.mode === 'edit' ? editorTabModelUri(state, file) : file.id
 }
 
-/** A tab whose unsaved draft an autosave of its model would write. */
-function holdsAutosaveDraft(state: AppState, file: OpenFile): boolean {
+/** A tab whose unsaved draft an autosave of its model could write. */
+export function holdsAutosaveDraft(state: AppState, file: OpenFile): boolean {
   return file.isDirty && state.editorDrafts[file.id] !== undefined && canAutoSaveOpenFile(file)
 }
 
 export type PlannedAutoSave = { fileId: string; draft: string }
 
 /**
- * At most one autosave per model. Tabs of one model holding different unsaved text pause it, so
- * neither workspace's draft silently replaces the other's; a manual save still writes.
+ * At most one autosave per model, of its most recently edited tab's draft: the newest text, which
+ * is what main's per-tab timers left on disk last. A suspended newest tab writes nothing.
  */
 export function planModelAutoSaves(
   state: AppState,
-  heldKeys: ReadonlySet<string>
+  heldKeys: ReadonlySet<string>,
+  editSeqOf: (fileId: string) => number
 ): Map<string, PlannedAutoSave> {
-  const holdersByKey = new Map<string, OpenFile[]>()
+  const newestByKey = new Map<string, OpenFile>()
   for (const file of state.openFiles.filter((tab) => holdsAutosaveDraft(state, tab))) {
     const key = editorSaveKeyOfFile(state, file)
-    holdersByKey.set(key, [...(holdersByKey.get(key) ?? []), file])
+    const newest = newestByKey.get(key)
+    if (!newest || editSeqOf(file.id) > editSeqOf(newest.id)) {
+      newestByKey.set(key, file)
+    }
   }
   const plans = new Map<string, PlannedAutoSave>()
-  for (const [key, holders] of holdersByKey) {
-    const draft = state.editorDrafts[holders[0].id]
-    if (
-      draft === undefined ||
-      heldKeys.has(key) ||
-      // Why: suspension holds until the user picks a side via the banner (or saves manually).
-      holders.some(isAutosaveSuspendedForFile) ||
-      holders.some((file) => state.editorDrafts[file.id] !== draft)
-    ) {
-      continue
+  for (const [key, file] of newestByKey) {
+    const draft = state.editorDrafts[file.id]
+    // Why: suspension holds until the user picks a side via the banner (or saves manually).
+    if (draft !== undefined && !heldKeys.has(key) && !isAutosaveSuspendedForFile(file)) {
+      plans.set(key, { fileId: file.id, draft })
     }
-    plans.set(key, { fileId: holders[0].id, draft })
   }
   return plans
 }
 
-/** Whether another tab of `file`'s model holds unsaved text different from `content`. */
-export function hasDivergentModelDraft(state: AppState, file: OpenFile, content: string): boolean {
-  if (file.mode !== 'edit') {
-    return false
-  }
-  // Why filter on path first: resolving a model URI walks the worktree route.
-  const candidates = state.openFiles.filter(
-    (tab) =>
-      tab.id !== file.id &&
-      tab.filePath === file.filePath &&
-      holdsAutosaveDraft(state, tab) &&
-      state.editorDrafts[tab.id] !== content
-  )
-  if (candidates.length === 0) {
-    return false
-  }
-  const key = editorSaveKeyOfFile(state, file)
-  return candidates.some((tab) => editorSaveKeyOfFile(state, tab) === key)
+export type DraftEditOrder = {
+  /** Records which drafts changed since the last call; cheap when `editorDrafts` is unchanged. */
+  note: (drafts: AppState['editorDrafts']) => void
+  seqOf: (fileId: string) => number
 }
 
-/** A dirty tab whose autosave is paused because another tab of its model holds different text. */
-export function isModelAutosavePausedByDivergentDrafts(state: AppState, fileId: string): boolean {
-  // Why first: the store selector runs on every update, so bail before any scan when autosave is off.
-  if (state.settings?.editorAutoSave !== true) {
-    return false
+/** Orders draft edits, so a model's newest text is known without per-tab timers racing. */
+export function createDraftEditOrder(): DraftEditOrder {
+  let counter = 0
+  let last: AppState['editorDrafts'] = {}
+  const seq = new Map<string, number>()
+  return {
+    note: (drafts) => {
+      if (drafts === last) {
+        return
+      }
+      for (const [id, draft] of Object.entries(drafts)) {
+        if (last[id] !== draft) {
+          seq.set(id, ++counter)
+        }
+      }
+      for (const id of seq.keys()) {
+        if (drafts[id] === undefined) {
+          seq.delete(id)
+        }
+      }
+      last = drafts
+    },
+    seqOf: (fileId) => seq.get(fileId) ?? 0
   }
-  const file = state.openFiles.find((openFile) => openFile.id === fileId)
-  const draft = state.editorDrafts[fileId]
-  return (
-    file !== undefined &&
-    draft !== undefined &&
-    holdsAutosaveDraft(state, file) &&
-    hasDivergentModelDraft(state, file, draft)
-  )
 }
 
 /**
@@ -100,18 +96,20 @@ export function pathMutationSaveKeys(
       editorSaveKeyOfFile(state, file)
     )
   )
-  const targetFile: OpenFile = {
-    id: '',
-    filePath: joinPath(target.worktreePath, target.relativePath),
-    relativePath: target.relativePath,
-    worktreeId: target.worktreeId,
-    language: '',
-    isDirty: false,
-    mode: 'edit',
-    ...(Object.hasOwn(target, 'runtimeEnvironmentId')
-      ? { runtimeEnvironmentId: target.runtimeEnvironmentId }
-      : {})
+  const ownerKey = resolvedEditorModelOwnerKey(
+    resolveEditorModelOwner(
+      {
+        worktreeId: target.worktreeId,
+        ...(Object.hasOwn(target, 'runtimeEnvironmentId')
+          ? { runtimeEnvironmentId: target.runtimeEnvironmentId }
+          : {})
+      },
+      state
+    )
+  )
+  // Why: an unresolved owner keys its model per tab, so no other tab can share it.
+  if (ownerKey !== null) {
+    keys.add(toEditorModelUri(joinPath(target.worktreePath, target.relativePath), ownerKey))
   }
-  keys.add(editorSaveKeyOfFile(state, targetFile))
   return keys
 }

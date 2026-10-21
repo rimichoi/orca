@@ -1,7 +1,7 @@
-// Why: tabs of one file in two workspaces share one text model, so autosave runs once per model and
-// pauses, rather than letting the last writer win, while the tabs hold different unsaved text.
+// Why: tabs of one file in two workspaces share one text model, so autosave runs once per model,
+// writes its newest text, and never lets an older sibling draft land over a newer write.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { requestEditorFileSave } from './editor-autosave'
+import { requestEditorFileSave, requestEditorSaveQuiesce } from './editor-autosave'
 import { attachEditorAutosaveController } from './editor-autosave-controller'
 import {
   createEditorStore,
@@ -9,7 +9,6 @@ import {
   stubEditorWindowWithDisk,
   withLoadedBaselines
 } from './editor-autosave-controller-test-fixture'
-import { isModelAutosavePausedByDivergentDrafts } from './editor-model-autosave-plan'
 import { makeWorktree } from '@/store/slices/worktrees-slice-test-fixtures'
 
 const PATH = '/repo/a.ts'
@@ -46,93 +45,90 @@ function setup(worktreeIds: string[]) {
   }
   const cleanup = attachEditorAutosaveController(store)
   const written = (): string[] => disk.fs.writeFile.mock.calls.map(([args]) => String(args.content))
-  const paused = (id: string): boolean =>
-    isModelAutosavePausedByDivergentDrafts(store.getState(), id)
-  return { disk, store, ids, edit, cleanup, written, paused }
+  const tab = (id: string) => store.getState().openFiles.find((file) => file.id === id)
+  return { disk, store, ids, edit, cleanup, written, tab }
 }
 
 describe('autosave per text model', () => {
   it('a single tab still autosaves normally', async () => {
-    const { store, ids, edit, cleanup, written, paused } = setup(['wt-1'])
+    const { ids, edit, cleanup, written, tab } = setup(['wt-1'])
     try {
       edit(ids[0], 'one')
-      expect(paused(ids[0])).toBe(false)
       await vi.advanceTimersByTimeAsync(1_000)
       expect(written()).toEqual(['one'])
-      expect(store.getState().openFiles[0].isDirty).toBe(false)
+      expect(tab(ids[0])?.isDirty).toBe(false)
     } finally {
       cleanup()
     }
   })
 
-  it('two workspaces holding the same text share one timer: one write per debounce', async () => {
-    const { ids, edit, cleanup, written } = setup(['wt-1', 'wt-2'])
+  it('two workspaces holding the same text share one timer: one write, both clean', async () => {
+    const { ids, edit, cleanup, written, tab } = setup(['wt-1', 'wt-2'])
     expect(new Set(ids).size).toBe(2)
     try {
       edit(ids[0], 'shared')
       edit(ids[1], 'shared')
-      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.advanceTimersByTimeAsync(10_000)
       expect(written()).toEqual(['shared'])
+      expect(ids.map((id) => tab(id)?.isDirty)).toEqual([false, false])
     } finally {
       cleanup()
     }
   })
 
-  it('divergent drafts pause autosave until they converge', async () => {
-    const { ids, edit, cleanup, written, paused } = setup(['wt-1', 'wt-2'])
+  it('autosave writes the newest edit; the older sibling draft never lands', async () => {
+    const { disk, ids, edit, cleanup, written, tab } = setup(['wt-1', 'wt-2'])
     try {
-      edit(ids[0], 'from wt-1')
-      edit(ids[1], 'from wt-2')
-      expect(paused(ids[0])).toBe(true)
-      expect(paused(ids[1])).toBe(true)
-      await vi.advanceTimersByTimeAsync(5_000)
-      expect(written()).toEqual([])
-
-      edit(ids[0], 'from wt-2')
-      expect(paused(ids[0])).toBe(false)
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(written()).toEqual(['from wt-2'])
-    } finally {
-      cleanup()
-    }
-  })
-
-  it('cancels an armed autosave the moment a second workspace diverges', async () => {
-    const { ids, edit, cleanup, written } = setup(['wt-1', 'wt-2'])
-    try {
-      edit(ids[0], 'from wt-1')
+      edit(ids[0], 'from A')
       await vi.advanceTimersByTimeAsync(500)
-      edit(ids[1], 'from wt-2')
-      await vi.advanceTimersByTimeAsync(5_000)
-      expect(written()).toEqual([])
+      edit(ids[1], 'from B')
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(written()).toEqual(['from B'])
+      expect(disk.files.get(PATH)).toBe('from B')
+      expect(tab(ids[0])?.externalMutation).toBe('changed')
     } finally {
       cleanup()
     }
   })
 
-  it('a manual save still writes the tab it was asked for while drafts diverge', async () => {
+  it('a manual save of the newer tab is never followed by the older tab autosaving', async () => {
+    const { disk, ids, edit, cleanup, written } = setup(['wt-1', 'wt-2'])
+    try {
+      edit(ids[0], 'from A')
+      edit(ids[1], 'chosen B')
+      await requestEditorFileSave({ fileId: ids[1] })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(written()).toEqual(['chosen B'])
+      expect(disk.files.get(PATH)).toBe('chosen B')
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('a manual save of an older tab leaves the newer sibling edit to autosave', async () => {
+    const { disk, ids, edit, cleanup, written, tab } = setup(['wt-1', 'wt-2'])
+    try {
+      edit(ids[1], 'older B')
+      edit(ids[0], 'newer A')
+      await requestEditorFileSave({ fileId: ids[1] })
+      expect(tab(ids[0])?.externalMutation).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(written()).toEqual(['older B', 'newer A'])
+      expect(disk.files.get(PATH)).toBe('newer A')
+    } finally {
+      cleanup()
+    }
+  })
+
+  it("another tab's quiesce does not cancel a user save", async () => {
     const { ids, edit, cleanup, written } = setup(['wt-1', 'wt-2'])
     try {
-      edit(ids[0], 'from wt-1')
-      edit(ids[1], 'from wt-2')
-      await requestEditorFileSave({ fileId: ids[1] })
-      expect(written()).toEqual(['from wt-2'])
-    } finally {
-      cleanup()
-    }
-  })
-
-  it('is not paused when autosave is off', () => {
-    const { store, ids, edit, cleanup, paused } = setup(['wt-1', 'wt-2'])
-    try {
-      const settings = store.getState().settings
-      expect(settings).toBeTruthy()
-      if (settings) {
-        store.setState({ settings: { ...settings, editorAutoSave: false } })
-      }
-      edit(ids[0], 'from wt-1')
-      edit(ids[1], 'from wt-2')
-      expect(paused(ids[0])).toBe(false)
+      edit(ids[1], 'saved by hand')
+      const save = requestEditorFileSave({ fileId: ids[1] })
+      const quiesce = requestEditorSaveQuiesce({ fileId: ids[0] })
+      await expect(save).resolves.toBeUndefined()
+      await quiesce
+      expect(written()).toEqual(['saved by hand'])
     } finally {
       cleanup()
     }

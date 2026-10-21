@@ -16348,9 +16348,6 @@
             },
             "sectionStale": {
               "notice": "This file changed on disk since this section loaded."
-            },
-            "divergentDrafts": {
-              "notice": "Autosave is paused because another tab of this file has different unsaved edits. Save the version you want to keep."
             }
           }
         },
@@ -20482,7 +20479,17 @@
   "tabHoverCard": {
     "browser": "浏览器",
     "editor": "编辑器",
-    "terminal": "终端"
+    "terminal": "终端",
+    "namingFailure": {
+      "regenerating": "正在重新生成…",
+      "regenerate": "重新生成名称",
+      "title": "无法为此聊天命名",
+      "description": "聊天命名代理因错误而停止，因此聊天将保留其第一条消息作为名称。",
+      "viewError": "查看错误",
+      "dialogTitle": "聊天自动命名失败",
+      "dialogDescriptionStart": "Orca 无法根据第一条消息为",
+      "dialogDescriptionEnd": "生成名称。"
+    }
   },
   "jira": {
     "savedFilters": {
