@@ -90,7 +90,7 @@ export function deriveBitbucketServerReviewDecision(
 }
 
 export function bitbucketServerHeadSha(raw: RawBitbucketServerPullRequest): string | undefined {
-  return stringOf(raw.fromRef?.latestCommit)?.trim() || undefined
+  return stringOf(raw.fromRef?.latestCommit)?.trim()
 }
 
 export function mapBitbucketServerPullRequest(

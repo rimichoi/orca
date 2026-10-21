@@ -55,7 +55,7 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
       }
       return null
     }
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: every Raw* field is optional and the mappers type-check each one before use.
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: every Raw* field is optional and the mappers type-check the string fields before use.
     return (await response.json()) as T
   } catch (error) {
     if (options.throwOnFailure) {
