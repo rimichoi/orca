@@ -12726,8 +12726,7 @@
                 "baseUrlPlaceholder": "https://bitbucket.example.com",
                 "accessToken": "Personal access token",
                 "tokenHint": "Create the token under your Bitbucket profile > Manage account > Personal access tokens, with repository write access so Orca can create pull requests.",
-                "remoteRuntime": "Stored on this machine, not on the active remote runtime — set ORCA_BITBUCKET_SERVER_* there instead. Environment variables always take precedence over what you save here.",
-                "storageNote": "Stored on this machine with encrypted storage when the OS keychain is available. ORCA_BITBUCKET_SERVER_* environment variables always take precedence over what you save here.",
+                "storageNote": "Stored on this machine with encrypted storage when the OS keychain is available, never on a remote runtime. ORCA_BITBUCKET_SERVER_BASE_URL and ORCA_BITBUCKET_SERVER_TOKEN, when both are set, take precedence over what you save here.",
                 "cancel": "Cancel",
                 "verifying": "Verifying...",
                 "connect": "Connect"

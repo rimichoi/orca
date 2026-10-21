@@ -1,6 +1,5 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { LoaderCircle, Lock } from 'lucide-react'
-import { useAppStore } from '@/store'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,7 +12,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { hasRemoteProviderRuntime } from '@/lib/provider-runtime-context'
 import { preventOutsideDismissWhenDirty } from '@/lib/outside-dismiss-guard'
 import { translate } from '@/i18n/i18n'
 
@@ -26,7 +24,6 @@ export function BitbucketServerCredentialsDialog(props: {
   onConnected?: () => void
 }): React.JSX.Element {
   const { open, onOpenChange, initialBaseUrl, onConnected } = props
-  const settings = useAppStore((s) => s.settings)
   const mountedRef = useMountedRef()
   const baseUrlId = useId()
   const accessTokenId = useId()
@@ -184,15 +181,10 @@ export function BitbucketServerCredentialsDialog(props: {
           </p>
           <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground/70">
             <Lock className="mt-0.5 size-3 shrink-0" />
-            {hasRemoteProviderRuntime(settings)
-              ? translate(
-                  'auto.components.settings.bitbucket.server.credentials.dialog.remoteRuntime',
-                  'Stored on this machine, not on the active remote runtime — set ORCA_BITBUCKET_SERVER_* there instead. Environment variables always take precedence over what you save here.'
-                )
-              : translate(
-                  'auto.components.settings.bitbucket.server.credentials.dialog.storageNote',
-                  'Stored on this machine with encrypted storage when the OS keychain is available. ORCA_BITBUCKET_SERVER_* environment variables always take precedence over what you save here.'
-                )}
+            {translate(
+              'auto.components.settings.bitbucket.server.credentials.dialog.storageNote',
+              'Stored on this machine with encrypted storage when the OS keychain is available, never on a remote runtime. ORCA_BITBUCKET_SERVER_BASE_URL and ORCA_BITBUCKET_SERVER_TOKEN, when both are set, take precedence over what you save here.'
+            )}
           </p>
         </div>
         <DialogFooter>
