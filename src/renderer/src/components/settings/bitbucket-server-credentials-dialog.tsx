@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { preventOutsideDismissWhenDirty } from '@/lib/outside-dismiss-guard'
+import { readIpcErrorMessage } from '@/lib/ipc-error'
 import { translate } from '@/i18n/i18n'
 
 type ConnectState = 'idle' | 'connecting' | 'error'
@@ -87,12 +88,11 @@ export function BitbucketServerCredentialsDialog(props: {
       if (mountedRef.current) {
         setConnectState('error')
         setConnectError(
-          error instanceof Error
-            ? error.message
-            : translate(
-                'auto.components.settings.bitbucket.server.credentials.dialog.connectFailed',
-                'Connection failed'
-              )
+          readIpcErrorMessage(error) ??
+            translate(
+              'auto.components.settings.bitbucket.server.credentials.dialog.connectFailed',
+              'Connection failed'
+            )
         )
       }
     }
