@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import type { PersistedState } from '../shared/persisted-state-types'
 import { toRuntimeExecutionHostId, toSshExecutionHostId } from '../shared/execution-host'
 import { hostWorktreeTarget } from '../shared/worktree/host-qualified-identity'
+import { removeWorktreeMetaRow } from './persistence/host-qualified-worktree-meta'
 
 // Stub the ~/.ssh/config parser so the SSH-import test drives the real Store with deterministic hosts, not the operator's actual ~/.ssh/config.
 const { loadUserSshConfigMock, sshConfigHostsToTargetsMock } = vi.hoisted(() => ({
@@ -707,7 +708,9 @@ describe('Store', () => {
   it('snapshots automation run workspace names for deleted-workspace history', async () => {
     const store = await createStore()
     store.addRepo(makeRepo())
-    store.setWorktreeMeta('wt1', { displayName: 'Nightly workspace' })
+    store.setWorktreeMeta(hostWorktreeTarget({ id: 'wt1', hostId: 'local' }), {
+      displayName: 'Nightly workspace'
+    })
     const automation = store.createAutomation({
       name: 'Nightly',
       prompt: 'Run checks',
@@ -721,7 +724,7 @@ describe('Store', () => {
     })
 
     const run = store.createAutomationRun(automation, new Date('2026-05-13T09:00:00Z').getTime())
-    store.removeWorktreeMeta('wt1')
+    removeWorktreeMetaRow(store, 'wt1', undefined)
 
     expect(run.workspaceDisplayName).toBe('Nightly workspace')
     expect(store.listAutomationRuns(automation.id)[0].workspaceDisplayName).toBe(

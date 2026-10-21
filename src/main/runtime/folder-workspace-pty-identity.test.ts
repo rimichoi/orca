@@ -77,7 +77,7 @@ function createRuntimeInternals(
     getRepo: (id: string) => (id === REPO_ID ? REPO : undefined),
     getAllWorktreeMeta: () => meta,
     getWorktreeMeta: (worktreeId: string) => meta[worktreeId],
-    setWorktreeMeta: (worktreeId: string, patch: Record<string, unknown>) => {
+    setWorktreeMeta: ({ id: worktreeId }: HostWorktreeTarget, patch: Record<string, unknown>) => {
       meta[worktreeId] = { ...meta[worktreeId], ...patch }
       return meta[worktreeId]
     },

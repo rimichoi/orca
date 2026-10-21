@@ -9,8 +9,10 @@ import {
   addManagedOrcadEnvironment,
   removeManagedOrcadEnvironment
 } from '../../shared/runtime-environment-managed-orcad-store'
-import { listEnvironments } from '../../shared/runtime-environment-store'
+import { listEnvironments, resolveEnvironment } from '../../shared/runtime-environment-store'
 import type { Repo } from '../../shared/repo-types'
+import { LOCAL_EXECUTION_HOST_ID, toSshExecutionHostId } from '../../shared/execution-host'
+import { hostWorktreeTarget } from '../../shared/worktree/host-qualified-identity'
 import type { SshTarget } from '../../shared/ssh-types'
 import { closeTestStores, createSqliteTestStore } from '../persistence-test-harness'
 import { Store } from '../persistence/loading-store/store'
@@ -61,6 +63,9 @@ const TARGET: SshTarget = {
   username: 'root',
   generation: 2
 }
+const onSsh = (id: string, targetId = TARGET.id) =>
+  hostWorktreeTarget({ id, hostId: toSshExecutionHostId(targetId) })
+const onServer = (id: string) => hostWorktreeTarget({ id, hostId: LOCAL_EXECUTION_HOST_ID })
 
 function repo(id: string, path: string, connectionId: string | null = TARGET.id): Repo {
   return {
@@ -95,6 +100,7 @@ function serverDestination(): typeof destination {
       const result = server.abortStagedOrcadMigrationCatalog(manifest)
       return result.aborted ? result : { ...result, durableAbsent: true as const }
     },
+    abortByReference: vi.fn(),
     stageChunk: async (request) => server.stageOrcadMigrationSnapshotChunk(request)
   }
 }
@@ -115,7 +121,7 @@ beforeEach(() => {
   targetStore = new SshConnectionStore(store as never)
   mocks.state.targetStore = targetStore
   destination = serverDestination()
-  mocks.ensureTunnel.mockResolvedValue(undefined)
+  mocks.ensureTunnel.mockImplementation(resolveEnvironment)
   mocks.deploy.mockImplementation(
     async (path: string, args: { name: string; sshTargetId: string }) => {
       const owner = getManagedOrcadFenceEnvironmentId(store.getSshTarget(args.sshTargetId))
@@ -246,8 +252,8 @@ describe('moving onto a server another desktop already added the same project to
 
   it('leaves the linked project’s saved state to the server, moving only the rest', async () => {
     otherDesktopAddsSameCheckout()
-    store.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'from this desktop' })
-    store.setWorktreeMeta('desktop-only::/root/tool', { comment: 'moves' })
+    store.setWorktreeMeta(onSsh('desktop-repo::/root/migrepo'), { comment: 'from this desktop' })
+    store.setWorktreeMeta(onSsh('desktop-only::/root/tool'), { comment: 'moves' })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(server.getWorktreeMeta('desktop-only::/root/tool')?.comment).toBe('moves')
     expect(server.getWorktreeMeta('desktop-repo::/root/migrepo')).toBeUndefined()
@@ -365,10 +371,14 @@ describe('moving the host again after its server was stopped', () => {
   }
 
   it('links the projects the server kept from the first move instead of conflicting', async () => {
-    store.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'before the first move' })
+    store.setWorktreeMeta(onSsh('desktop-repo::/root/migrepo'), {
+      comment: 'before the first move'
+    })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     // Used on the server while it was managed.
-    server.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'edited on the server' })
+    server.setWorktreeMeta(onServer('desktop-repo::/root/migrepo'), {
+      comment: 'edited on the server'
+    })
     stopServer()
 
     await expect(convert()).resolves.toMatchObject({
@@ -416,9 +426,8 @@ describe('moving the host again after its server was stopped', () => {
       claims: targetStore.getOrcadRuntimeClaims(),
       target: store.getSshTarget(TARGET.id)!,
       environment: listEnvironments(userDataPath)[0]!,
-      destination,
+      connectDestination: async () => destination,
       censusHost: async () => ({ verdict: 'exited', count: 0 }),
-      ensureTunnel: async () => {},
       runTargetLifecycle
     })
   }
@@ -664,13 +673,19 @@ describe('moving the host again after its SSH target was deleted and re-created'
   }
 
   it('links the projects and saved state the server kept under the old target', async () => {
-    store.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'before the first move' })
+    store.setWorktreeMeta(onSsh('desktop-repo::/root/migrepo'), {
+      comment: 'before the first move'
+    })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
-    server.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'edited on the server' })
+    server.setWorktreeMeta(onServer('desktop-repo::/root/migrepo'), {
+      comment: 'edited on the server'
+    })
     const recreated = recreateTarget()
     expect(store.getRepo('desktop-repo')?.connectionId).toBe(recreated)
     // Used on this desktop under the new target before it was moved again.
-    store.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'edited after re-creating' })
+    store.setWorktreeMeta(onSsh('desktop-repo::/root/migrepo', recreated), {
+      comment: 'edited after re-creating'
+    })
 
     await expect(convert(true, 'exited', recreated)).resolves.toMatchObject({
       outcome: 'converted'

@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkspaceSessionState } from '../../../shared/workspace-session-state-types'
+import { removeWorktreeMetaRow } from '../host-qualified-worktree-meta'
 
 vi.mock('electron', () => ({
   app: {
@@ -88,10 +89,13 @@ describe('store signals to the worktree metadata prune gate', () => {
 
   it('re-arms the gate when a metadata row is removed', () => {
     const store = createStore()
-    store.setWorktreeMeta(WORKTREE_ID, { displayName: 'a', hostId: 'local' })
+    store.setWorktreeMeta(hostWorktreeTarget({ id: WORKTREE_ID, hostId: 'local' }), {
+      displayName: 'a',
+      hostId: 'local'
+    })
     parkGate()
 
-    store.removeWorktreeMeta(WORKTREE_ID)
+    removeWorktreeMetaRow(store, WORKTREE_ID, undefined)
 
     expect(isLocalWorktreeMetadataPruneDue(REPO_ID)).toBe(true)
   })
@@ -100,8 +104,14 @@ describe('store signals to the worktree metadata prune gate', () => {
     const store = createStore()
     parkGate()
 
-    store.setWorktreeMeta(WORKTREE_ID, { displayName: 'a', hostId: 'local' })
-    store.setWorktreeMeta(WORKTREE_ID, { displayName: 'b', hostId: 'local' })
+    store.setWorktreeMeta(hostWorktreeTarget({ id: WORKTREE_ID, hostId: 'local' }), {
+      displayName: 'a',
+      hostId: 'local'
+    })
+    store.setWorktreeMeta(hostWorktreeTarget({ id: WORKTREE_ID, hostId: 'local' }), {
+      displayName: 'b',
+      hostId: 'local'
+    })
 
     // Why this matters: the worktree listing itself stamps metadata on every scan, so a gate that
     // re-armed on ordinary writes would restore the storm it exists to stop (#17775).

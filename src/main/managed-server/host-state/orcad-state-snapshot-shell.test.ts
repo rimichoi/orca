@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -113,6 +114,25 @@ describe.skipIf(process.platform === 'win32')('snapshot commands on a real shell
     expect(existsSync(join(root, 'profiles', 'added.json'))).toBe(false)
     expect(readFileSync(join(root, 'daemon', 'token'), 'utf8')).toBe('rotated')
     expect(existsSync(join(root, '.orcad-state-restore-stage'))).toBe(false)
+  })
+
+  it('captures on a BusyBox before 1.30, whose timeout only takes `-t SECS`', async () => {
+    const bin = join(base, 'bin')
+    mkdirSync(bin)
+    // Old BusyBox reads a bare `900` as the program to run.
+    writeFileSync(
+      join(bin, 'timeout'),
+      '#!/bin/sh\n[ "$1" = "-t" ] || exit 127\nshift 2\n[ "$1" = "-s" ] && shift 2\nexec "$@"\n'
+    )
+    chmodSync(join(bin, 'timeout'), 0o755)
+
+    expect(
+      parseOrcadSnapshotCapture(
+        await sh(captureOrcadStateSnapshotCommand(posix, root, snapshot, remoteBase), {
+          PATH: `${bin}:${process.env.PATH ?? ''}`
+        })
+      )
+    ).toBe('captured')
   })
 
   it('keeps live state when the archive cannot be extracted', async () => {

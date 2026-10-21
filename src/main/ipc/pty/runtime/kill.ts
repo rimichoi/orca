@@ -215,15 +215,15 @@ export async function stopAndWaitPtyFromRuntimeController(
     const deadline = opts?.deadlineMs ?? Date.now() + OBSERVED_EXIT_RECORD_WAIT_MS
     const stopped = await Promise.race([
       stopLegacyRelayPaneAndWait(ptyId, deadline),
-      delay(Math.max(1, deadline - Date.now())).then(() => false)
+      delay(Math.max(1, deadline - Date.now())).then(() => null)
     ])
     if (stopped) {
-      // The bridge retired the lease and holds no pane: the relay reported the exit, or the
-      // listing lacks it. The runtime learns it here.
+      // The bridge retired the lease and holds no pane. An exit it saw already reached the runtime.
       const proof = PtyExitProof.from('absent', stoppingIncarnationId)
-      publishSyntheticExit(deps, ptyId, 0, finishPtyShutdown(ptyId, null, store, proof), proof)
+      const publishTo = stopped === 'reported' ? { ...deps, runtime: undefined } : deps
+      publishSyntheticExit(publishTo, ptyId, 0, finishPtyShutdown(ptyId, null, store, proof), proof)
     }
-    return stopped
+    return stopped !== null
   }
   // Why: destructive teardown threads one absolute deadline through every await
   // below; each RPC leaf converts it to the remaining time when it issues, so

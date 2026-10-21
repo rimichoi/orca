@@ -135,7 +135,9 @@ export function serializedStateMutationCommand(
     'else "$@"; fi; };',
     // Why timeout inside the group: KILL then reaches tar and rm, not only the shell.
     // The deadline is a word list, so the script is sent once, not once per branch.
-    `orca_deadline=; command -v timeout >/dev/null 2>&1 && orca_deadline="timeout -s KILL ${ORCAD_STATE_MUTATION_DEADLINE_SECONDS}";`,
+    // BusyBox before 1.30 spells it `timeout -t SECS`, as the room probe found.
+    `orca_deadline=; if timeout 1 true 2>/dev/null; then orca_deadline="timeout -s KILL ${ORCAD_STATE_MUTATION_DEADLINE_SECONDS}";`,
+    `elif timeout -t 1 true 2>/dev/null; then orca_deadline="timeout -t ${ORCAD_STATE_MUTATION_DEADLINE_SECONDS} -s KILL"; fi;`,
     `orca_state_group $orca_deadline ${run};`,
     `status=$?; ${owned ? `[ "$status" -eq ${ORCAD_FENCE_LOST_EXIT} ] && exit ${ORCAD_FENCE_LOST_EXIT}; ` : ''}if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then echo ${ORCAD_STATE_MUTATION_DEADLINE}; fi`
   ].join(' ')

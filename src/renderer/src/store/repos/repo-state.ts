@@ -268,7 +268,11 @@ export type RepoSlice = {
   // options.errorFeedback defaults to 'silent' so bulk/background callers keep their own aggregate reporting.
   removeProject: (
     projectId: string,
-    options: { hostId: ExecutionHostId; errorFeedback?: 'toast' | 'silent' }
+    options: {
+      hostId: ExecutionHostId
+      errorFeedback?: 'toast' | 'silent'
+      automaticCleanup?: boolean
+    }
   ) => Promise<void>
   updateProject: (
     projectId: string,

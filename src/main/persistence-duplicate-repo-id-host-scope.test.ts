@@ -20,6 +20,7 @@ import { getDefaultPersistedState } from '../shared/constants'
 import { toRuntimeExecutionHostId } from '../shared/execution-host'
 import { installFakeAppEnvironment } from '../../config/scripts/vitest-host-ports-setup'
 import { resetRetirementCollisionKeyCacheForTests } from './worktree-name-retirement'
+import { hostWorktreeTarget } from '../shared/worktree/host-qualified-identity'
 
 let hasCreatedStoreInCase = false
 
@@ -130,7 +131,9 @@ describe('deleting one host copy of a repo id shared by two hosts', () => {
       const store = await createStoreFromState({
         repos: duplicateIdRepos().map((repo) => ({ ...repo, kind }))
       })
-      store.setWorktreeMetaForHost('dup::/remote/dup', 'ssh:ssh-1', { displayName: 'SSH wt' })
+      store.setWorktreeMeta(hostWorktreeTarget({ id: 'dup::/remote/dup', hostId: 'ssh:ssh-1' }), {
+        displayName: 'SSH wt'
+      })
 
       store.removeProjectForHost({ id: 'dup', executionHostId: 'local' })
       expect(store.getRepos().map((repo) => repo.path)).toEqual(['/remote/dup'])

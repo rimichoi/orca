@@ -8,11 +8,7 @@ import {
 import { collectLeafIdsInOrder } from './terminal-layout-leaf-ids'
 
 export type RemotePaneLayoutPusher = {
-  push: (input: {
-    worktreeId: string
-    tabId: string
-    layout: TerminalLayoutSnapshot
-  }) => void
+  push: (input: { worktreeId: string; tabId: string; layout: TerminalLayoutSnapshot }) => void
 }
 
 /**

@@ -29,7 +29,10 @@ import {
   getLocalWorktreeScanGeneration,
   isLocalWorktreeScanGenerationCurrent
 } from './local-worktree-scan-generation'
+import { hostWorktreeTarget } from '../shared/worktree/host-qualified-identity'
+import type { ExecutionHostId } from '../shared/execution-host'
 
+const at = (id: string, hostId: ExecutionHostId) => hostWorktreeTarget({ id, hostId })
 // Stub the ~/.ssh/config parser so the SSH-import test drives the real Store with deterministic hosts, not the operator's actual ~/.ssh/config.
 const { loadUserSshConfigMock, sshConfigHostsToTargetsMock } = vi.hoisted(() => ({
   loadUserSshConfigMock: vi.fn(),
@@ -289,9 +292,9 @@ describe('Store', () => {
     store.addRepo(makeRepo({ id: 'r1' }))
     store.addRepo(makeRepo({ id: 'r2', path: '/repo2' }))
 
-    store.setWorktreeMeta('r1::/path/wt1', { displayName: 'wt1' })
-    store.setWorktreeMeta('r1::/path/wt2', { displayName: 'wt2' })
-    store.setWorktreeMeta('r2::/other', { displayName: 'other' })
+    store.setWorktreeMeta(at('r1::/path/wt1', 'local'), { displayName: 'wt1' })
+    store.setWorktreeMeta(at('r1::/path/wt2', 'local'), { displayName: 'wt2' })
+    store.setWorktreeMeta(at('r2::/other', 'local'), { displayName: 'other' })
 
     store.removeProjectForHost({ id: 'r1', executionHostId: 'local' })
 
@@ -323,8 +326,8 @@ describe('Store', () => {
     store.addRepo(makeRepo({ id: 'r1' }))
     store.addRepo(makeRepo({ id: 'r2', path: '/repo2' }))
 
-    store.setWorktreeMeta('r1::/path/wt1', { displayName: 'wt1' })
-    store.setWorktreeMeta('r2::/other', { displayName: 'other' })
+    store.setWorktreeMeta(at('r1::/path/wt1', 'local'), { displayName: 'wt1' })
+    store.setWorktreeMeta(at('r2::/other', 'local'), { displayName: 'other' })
 
     store.setWorkspaceSession({
       ...getDefaultWorkspaceSession(),
@@ -342,7 +345,7 @@ describe('Store', () => {
     const store = await createStore()
     store.addRepo(makeRepo({ id: 'r1' }))
 
-    store.setWorktreeMeta('r1::/path/wt1', { displayName: 'wt1' })
+    store.setWorktreeMeta(at('r1::/path/wt1', 'local'), { displayName: 'wt1' })
 
     const hostId = 'ssh:host-a'
     store.setWorkspaceSession(
@@ -391,21 +394,21 @@ describe('Store', () => {
     store.addRepo(makeRepo({ id: 'r2', path: '/repo2' }))
 
     store.setWorktreeLineage(
-      'r1::/path/child',
+      at('r1::/path/child', 'local'),
       makeWorktreeLineage({
         worktreeId: 'r1::/path/child',
         parentWorktreeId: 'r1::/path/parent'
       })
     )
     store.setWorktreeLineage(
-      'r2::/other-child',
+      at('r2::/other-child', 'local'),
       makeWorktreeLineage({
         worktreeId: 'r2::/other-child',
         parentWorktreeId: 'r1::/path/parent'
       })
     )
     store.setWorktreeLineage(
-      'r2::/other',
+      at('r2::/other', 'local'),
       makeWorktreeLineage({
         worktreeId: 'r2::/other',
         parentWorktreeId: 'r2::/parent'
@@ -451,10 +454,9 @@ describe('Store', () => {
         executionHostId: 'ssh:ssh-old'
       })
     )
-    store.setWorktreeMeta('shared::/local/repo/wt', { displayName: 'local-wt', hostId: 'local' })
-    store.setWorktreeMeta('shared::/remote/repo/wt', {
-      displayName: 'remote-wt',
-      hostId: 'ssh:ssh-old'
+    store.setWorktreeMeta(at('shared::/local/repo/wt', 'local'), { displayName: 'local-wt' })
+    store.setWorktreeMeta(at('shared::/remote/repo/wt', 'ssh:ssh-old'), {
+      displayName: 'remote-wt'
     })
 
     store.removeProjectForHost({ id: 'shared', executionHostId: 'ssh:ssh-old' })
@@ -487,7 +489,7 @@ describe('Store', () => {
         executionHostId: 'ssh:ssh-a'
       })
     )
-    store.setWorktreeMeta('shared::/repo', { displayName: 'local', hostId: 'local' })
+    store.setWorktreeMeta(at('shared::/repo', 'local'), { displayName: 'local' })
 
     store.setWorkspaceSession({
       ...getDefaultWorkspaceSession(),
@@ -521,7 +523,7 @@ describe('Store', () => {
         executionHostId: 'ssh:ssh-a'
       })
     )
-    store.setWorktreeMeta('shared::/repo', { displayName: 'local', hostId: 'local' })
+    store.setWorktreeMeta(at('shared::/repo', 'local'), { displayName: 'local' })
 
     store.setWorkspaceSession({
       ...getDefaultWorkspaceSession(),
@@ -592,7 +594,7 @@ describe('Store', () => {
         executionHostId: 'ssh:ssh-b'
       })
     )
-    store.setWorktreeMeta('shared::/repo', { displayName: 'local', hostId: 'local' })
+    store.setWorktreeMeta(at('shared::/repo', 'local'), { displayName: 'local' })
 
     store.setWorkspaceSession({
       ...getDefaultWorkspaceSession(),
@@ -693,12 +695,11 @@ describe('Store', () => {
       })
     )
     // SSH worktree meta correctly carries hostId (the normal, stamped case).
-    store.setWorktreeMeta('shared::/remote/repo/wt', {
-      displayName: 'remote-wt',
-      hostId: 'ssh:ssh-old'
+    store.setWorktreeMeta(at('shared::/remote/repo/wt', 'ssh:ssh-old'), {
+      displayName: 'remote-wt'
     })
     // A hostId-less meta is treated as local and left behind (never delete the wrong host's meta).
-    store.setWorktreeMeta('shared::/local/repo/wt', { displayName: 'local-wt' })
+    store.setWorktreeMeta(at('shared::/local/repo/wt', 'local'), { displayName: 'local-wt' })
 
     store.removeProjectForHost({ id: 'shared', executionHostId: 'ssh:ssh-old' })
 
@@ -709,7 +710,7 @@ describe('Store', () => {
   it('removeProjectForHost prunes everything when the id exists on no other host', async () => {
     const store = await createStore()
     store.addRepo(makeRepo({ id: 'only', connectionId: 'ssh-x', executionHostId: 'ssh:ssh-x' }))
-    store.setWorktreeMeta('only::/repo/wt', { displayName: 'wt', hostId: 'ssh:ssh-x' })
+    store.setWorktreeMeta(at('only::/repo/wt', 'ssh:ssh-x'), { displayName: 'wt' })
 
     store.removeProjectForHost({ id: 'only', executionHostId: 'ssh:ssh-x' })
 
@@ -755,7 +756,7 @@ describe('Store', () => {
   it('reassignSshTargetId re-points repos and worktree metas onto the new id', async () => {
     const store = await createStore()
     store.addRepo(makeRepo({ id: 'r1', connectionId: 'ssh-old', executionHostId: 'ssh:ssh-old' }))
-    store.setWorktreeMeta('r1::/repo/wt', { displayName: 'wt', hostId: 'ssh:ssh-old' })
+    store.setWorktreeMeta(at('r1::/repo/wt', 'ssh:ssh-old'), { displayName: 'wt' })
 
     const repoIds = store.reassignSshTargetId('ssh-old', 'ssh-new')
 
@@ -805,7 +806,7 @@ describe('Store', () => {
     // persisted, not memory-only. The repo id stays registered so the load-time orphan sweep,
     // which only reads repo ids, leaves the row alone.
     store.addRepo(makeRepo({ id: 'r1', path: '/r1' }))
-    store.setWorktreeMeta('r1::/remote/wt', { displayName: 'wt', hostId: 'ssh:ssh-old' })
+    store.setWorktreeMeta(at('r1::/remote/wt', 'ssh:ssh-old'), { displayName: 'wt' })
 
     const repoIds = store.reassignSshTargetId('ssh-old', 'ssh-new')
     expect(repoIds).toEqual([]) // no repo matched
