@@ -218,8 +218,11 @@ export class MachineService {
       this.consecutiveFailures.set(key, (this.consecutiveFailures.get(key) ?? 0) + 1)
       this.client.commit(provider, (inventory) => {
         inventory.lastFailure = failureOf(error, this.client.now())
+        // A machine a newer lifecycle result settled was reached since; it is not unreachable.
         for (const machine of inventory.machines) {
-          markUnreachable(inventory, machine.id, error)
+          if (!this.client.fence.changedSince(key, machine.id, read)) {
+            markUnreachable(inventory, machine.id, error)
+          }
         }
       })
     }
@@ -275,10 +278,10 @@ export class MachineService {
       if (!isUnknownOutcome(error)) {
         throw error
       }
-      return this.reconcile(provider, machineId, verb, error)
+      return this.reconcile(provider, machineId, verb)
     }
     if (!isConfirmedMachineTransition(verb, machine.state)) {
-      return this.reconcile(provider, machineId, verb, `${verb} reported ${machine.state}.`)
+      return this.reconcile(provider, machineId, verb)
     }
     if (verb === 'delete') {
       return this.finishDelete(provider, machineId)
@@ -298,10 +301,9 @@ export class MachineService {
   private async reconcile(
     provider: MachineProviderEntry,
     machineId: string,
-    verb: Mutation,
-    reason: unknown
+    verb: Mutation
   ): Promise<MachineRecord> {
-    this.client.commit(provider, (inventory) => markUnreachable(inventory, machineId, reason))
+    // Why no unreachable mark first: the answer may be odd, not lost; only a failed read says so.
     const record = await this.get(provider.providerKey, machineId)
     // A delete the read confirms (the machine is gone) still owes its cleanup.
     return verb === 'delete' && record.state === 'gone'

@@ -3,6 +3,7 @@ import { encodePairingOffer } from '../../shared/pairing'
 import { MachineService } from './machine-service'
 import {
   KEY,
+  fail,
   inventory,
   machine,
   removeMachineServiceRoots,
@@ -78,6 +79,39 @@ describe('MachineService reads against lifecycle results', () => {
     await service.wake(KEY, 'sbx-1')
     staleGet.release()
     await expect(reading).resolves.toMatchObject({ state: 'running' })
+  })
+})
+
+describe('MachineService never flashes unreachable on an answered provider', () => {
+  it('keeps a woken machine running when a list that began before the wake then fails', async () => {
+    const failingList = held(fail('unavailable'))
+    const { service } = await setup({
+      list: [inventory([SLEEPING]), failingList.handler],
+      wake: reply(machine())
+    })
+    await service.list(KEY)
+    const listing = service.list(KEY, { force: true })
+    await tick()
+    await service.wake(KEY, 'sbx-1')
+    failingList.release()
+    await listing
+    expect(service.snapshots()[0]?.machines[0]?.state).toBe('running')
+  })
+
+  it('reads an unconfirming answer without first marking the machine unreachable', async () => {
+    const states: string[] = []
+    const { deps } = await setup({
+      list: inventory([machine()]),
+      delete: reply(machine({ state: 'unknown', access: undefined })),
+      get: fail('not-found')
+    })
+    const service = new MachineService({
+      ...deps,
+      onChanged: (snapshot) => states.push(snapshot.machines[0]?.state ?? 'none')
+    })
+    await service.list(KEY)
+    await expect(service.delete(KEY, 'sbx-1')).resolves.toMatchObject({ state: 'gone' })
+    expect(states).not.toContain('unreachable')
   })
 })
 
