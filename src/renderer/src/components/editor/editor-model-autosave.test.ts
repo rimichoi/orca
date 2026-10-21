@@ -1,5 +1,5 @@
-// Why: tabs of one file in two workspaces share one text model, so autosave runs once per model,
-// writes its newest text, and never lets an older sibling draft land over a newer write.
+// Why: code-view tabs of one file in two workspaces show one text model, so they share one autosave
+// timer that writes the model's live text; a stale draft of an unmounted tab is never written.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { requestEditorFileSave, requestEditorSaveQuiesce } from './editor-autosave'
 import { attachEditorAutosaveController } from './editor-autosave-controller'
@@ -9,18 +9,35 @@ import {
   stubEditorWindowWithDisk,
   withLoadedBaselines
 } from './editor-autosave-controller-test-fixture'
+import { registerPendingEditorFlush } from './editor-pending-flush'
 import { makeWorktree } from '@/store/slices/worktrees-slice-test-fixtures'
 
-const PATH = '/repo/a.ts'
+// Live Monaco model text by model URI, as the editor-model registry would expose it.
+const liveModels = vi.hoisted(() => new Map<string, string>())
+vi.mock('@/lib/editor-model-registry', () => ({
+  editorModelRegistry: {
+    get: () => ({
+      Uri: { parse: (uri: string) => uri },
+      editor: {
+        getModel: (uri: string) =>
+          liveModels.has(uri) ? { getValue: () => liveModels.get(uri) } : null
+      }
+    })
+  }
+}))
 
-beforeEach(() => vi.useFakeTimers())
+beforeEach(() => {
+  vi.useFakeTimers()
+  liveModels.clear()
+})
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
-function setup(worktreeIds: string[]) {
-  const disk = stubEditorWindowWithDisk(createFakeEditorDisk({ [PATH]: 'disk' }))
+function setup(worktreeIds: string[], fileName = 'a.ts') {
+  const path = `/repo/${fileName}`
+  const disk = stubEditorWindowWithDisk(createFakeEditorDisk({ [path]: 'disk' }))
   const store = createEditorStore()
   store.setState({
     worktreesByRepo: {
@@ -31,26 +48,32 @@ function setup(worktreeIds: string[]) {
   })
   const ids = worktreeIds.map((worktreeId) =>
     store.getState().openFile({
-      filePath: PATH,
-      relativePath: 'a.ts',
+      filePath: path,
+      relativePath: fileName,
       worktreeId,
-      language: 'typescript',
+      language: fileName.endsWith('.md') ? 'markdown' : 'typescript',
       mode: 'edit'
     })
   )
   withLoadedBaselines(store, disk)
+  /** A stored draft only, e.g. one restored from a session or left by an unmounted tab. */
   const edit = (id: string, text: string): void => {
     store.getState().setEditorDraft(id, text)
     store.getState().markFileDirty(id, true)
   }
+  /** Typing in a mounted code view: the shared model and that tab's draft change together. */
+  const type = (id: string, text: string): void => {
+    liveModels.set(`file://${path}`, text)
+    edit(id, text)
+  }
   const cleanup = attachEditorAutosaveController(store)
   const written = (): string[] => disk.fs.writeFile.mock.calls.map(([args]) => String(args.content))
   const tab = (id: string) => store.getState().openFiles.find((file) => file.id === id)
-  return { disk, store, ids, edit, cleanup, written, tab }
+  return { path, disk, store, ids, edit, type, cleanup, written, tab }
 }
 
 describe('autosave per text model', () => {
-  it('a single tab still autosaves normally', async () => {
+  it('a single tab still autosaves its draft normally', async () => {
     const { ids, edit, cleanup, written, tab } = setup(['wt-1'])
     try {
       edit(ids[0], 'one')
@@ -62,60 +85,54 @@ describe('autosave per text model', () => {
     }
   })
 
-  it('two workspaces holding the same text share one timer: one write, both clean', async () => {
-    const { ids, edit, cleanup, written, tab } = setup(['wt-1', 'wt-2'])
-    expect(new Set(ids).size).toBe(2)
+  it('typing in W1 then W2 writes the live text once; both clean, no banner', async () => {
+    const { path, disk, store, ids, type, cleanup, written, tab } = setup(['wt-1', 'wt-2'])
     try {
-      edit(ids[0], 'shared')
-      edit(ids[1], 'shared')
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(written()).toEqual(['shared'])
-      expect(ids.map((id) => tab(id)?.isDirty)).toEqual([false, false])
-    } finally {
-      cleanup()
-    }
-  })
-
-  it('autosave writes the newest edit; the older sibling draft never lands', async () => {
-    const { disk, ids, edit, cleanup, written, tab } = setup(['wt-1', 'wt-2'])
-    try {
-      edit(ids[0], 'from A')
+      type(ids[0], 'abc')
       await vi.advanceTimersByTimeAsync(500)
-      edit(ids[1], 'from B')
+      // W1 unmounts with its "abc" snapshot; W2 mounts the shared model and types.
+      type(ids[1], 'abcd')
       await vi.advanceTimersByTimeAsync(60_000)
-      expect(written()).toEqual(['from B'])
-      expect(disk.files.get(PATH)).toBe('from B')
-      expect(tab(ids[0])?.externalMutation).toBe('changed')
+      expect(written()).toEqual(['abcd'])
+      expect(disk.files.get(path)).toBe('abcd')
+      expect(ids.map((id) => tab(id)?.isDirty)).toEqual([false, false])
+      expect(ids.map((id) => tab(id)?.externalMutation)).toEqual([undefined, undefined])
+      // No stale "abc" draft is left to push back into the model when W1 remounts.
+      expect(store.getState().editorDrafts[ids[0]]).toBeUndefined()
     } finally {
       cleanup()
     }
   })
 
-  it('a manual save of the newer tab is never followed by the older tab autosaving', async () => {
-    const { disk, ids, edit, cleanup, written } = setup(['wt-1', 'wt-2'])
+  it('divergent drafts with no live model autosave nothing; a manual save writes only itself', async () => {
+    const { ids, edit, cleanup, written, tab } = setup(['wt-1', 'wt-2'])
     try {
-      edit(ids[0], 'from A')
-      edit(ids[1], 'chosen B')
-      await requestEditorFileSave({ fileId: ids[1] })
+      edit(ids[0], 'restored A')
+      edit(ids[1], 'restored B')
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(written()).toEqual([])
+      await requestEditorFileSave({ fileId: ids[0] })
       await vi.advanceTimersByTimeAsync(60_000)
-      expect(written()).toEqual(['chosen B'])
-      expect(disk.files.get(PATH)).toBe('chosen B')
+      expect(written()).toEqual(['restored A'])
+      expect(tab(ids[1])?.isDirty).toBe(true)
     } finally {
       cleanup()
     }
   })
 
-  it('a manual save of an older tab leaves the newer sibling edit to autosave', async () => {
-    const { disk, ids, edit, cleanup, written, tab } = setup(['wt-1', 'wt-2'])
+  it("a rich tab's pending typing is never settled by a source tab's save", async () => {
+    const { store, ids, edit, type, cleanup, tab } = setup(['wt-1', 'wt-2'], 'a.md')
+    store.setState({ markdownViewMode: { [ids[0]]: 'source' } })
+    // The rich tab's stored draft matches, but newer TipTap text waits on its 300 ms publish.
+    const unregister = registerPendingEditorFlush(ids[1], () => {})
     try {
-      edit(ids[1], 'older B')
-      edit(ids[0], 'newer A')
-      await requestEditorFileSave({ fileId: ids[1] })
-      expect(tab(ids[0])?.externalMutation).toBeUndefined()
-      await vi.advanceTimersByTimeAsync(5_000)
-      expect(written()).toEqual(['older B', 'newer A'])
-      expect(disk.files.get(PATH)).toBe('newer A')
+      edit(ids[1], 'same text')
+      type(ids[0], 'same text')
+      await requestEditorFileSave({ fileId: ids[0] })
+      expect(tab(ids[0])?.isDirty).toBe(false)
+      expect(tab(ids[1])?.isDirty).toBe(true)
     } finally {
+      unregister()
       cleanup()
     }
   })

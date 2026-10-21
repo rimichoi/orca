@@ -1,86 +1,116 @@
 import type { AppState } from '@/store'
 import type { OpenFile } from '@/store/slices/editor'
 import { joinPath } from '@/lib/path'
+import { editorModelRegistry } from '@/lib/editor-model-registry'
 import {
   canAutoSaveOpenFile,
   getOpenFilesForExternalFileChange,
   isAutosaveSuspendedForFile,
   type EditorPathMutationTarget
 } from './editor-autosave'
-import { editorTabModelUri } from './editor-save-disk-precondition'
+import {
+  editorModelSiblingTabs,
+  editorTabModelUri,
+  isCodeViewTab
+} from './editor-save-disk-precondition'
 import { toEditorModelUri } from './editor-model-uri'
 import { resolveEditorModelOwner, resolvedEditorModelOwnerKey } from './editor-model-owner'
 
-/** Edit tabs share their model's save queue, timer and generation; any other tab keeps its own. */
+/** Edit tabs of one file and host share their model's save queue and any discard hold. */
 export function editorSaveKeyOfFile(state: AppState, file: OpenFile): string {
   return file.mode === 'edit' ? editorTabModelUri(state, file) : file.id
 }
 
-/** A tab whose unsaved draft an autosave of its model could write. */
-export function holdsAutosaveDraft(state: AppState, file: OpenFile): boolean {
+/**
+ * Code-view tabs show the live model text, so they share one autosave timer and generation. Rich,
+ * CSV and notebook views hold their own text and keep their own, as each tab did before.
+ */
+export function editorScheduleKeyOfFile(state: AppState, file: OpenFile): string {
+  return isCodeViewTab(state, file) ? editorTabModelUri(state, file) : file.id
+}
+
+/** The model text every code-view tab of `file` shows; undefined before any of them mounted. */
+export function readLiveModelText(state: AppState, file: OpenFile): string | undefined {
+  const registry = editorModelRegistry.get()
+  return registry?.editor.getModel(registry.Uri.parse(editorTabModelUri(state, file)))?.getValue()
+}
+
+/**
+ * What an autosave of a shared code-view model writes: its live text. Before any tab mounted there
+ * is no live text, so only drafts every dirty tab agrees on; divergent ones write nothing.
+ */
+export function sharedModelAutosaveText(state: AppState, file: OpenFile): string | undefined {
+  const live = readLiveModelText(state, file)
+  if (live !== undefined) {
+    return live
+  }
+  const drafts = new Set(
+    editorModelSiblingTabs(state, file).flatMap((tab) => {
+      const draft = state.editorDrafts[tab.id]
+      return tab.isDirty && draft !== undefined ? [draft] : []
+    })
+  )
+  return drafts.size === 1 ? [...drafts][0] : undefined
+}
+
+/**
+ * Whether another code-view tab shares `file`'s model. Its stored draft may be a stale snapshot
+ * (it updates only while mounted), so only the live model text is safe to autosave.
+ */
+export function sharesCodeViewModel(state: AppState, file: OpenFile): boolean {
+  if (!isCodeViewTab(state, file)) {
+    return false
+  }
+  // Why filter on path first: resolving a model URI walks the worktree route.
+  const others = state.openFiles.filter(
+    (tab) => tab.id !== file.id && tab.filePath === file.filePath && isCodeViewTab(state, tab)
+  )
+  if (others.length === 0) {
+    return false
+  }
+  const key = editorTabModelUri(state, file)
+  return others.some((tab) => editorTabModelUri(state, tab) === key)
+}
+
+function holdsAutosaveDraft(state: AppState, file: OpenFile): boolean {
   return file.isDirty && state.editorDrafts[file.id] !== undefined && canAutoSaveOpenFile(file)
 }
 
-export type PlannedAutoSave = { fileId: string; draft: string }
+/** `drafts` only detects edits (a new one restarts the debounce); a shared model saves live text. */
+export type PlannedAutoSave = { fileId: string; drafts: readonly string[]; liveModel: boolean }
 
-/**
- * At most one autosave per model, of its most recently edited tab's draft: the newest text, which
- * is what main's per-tab timers left on disk last. A suspended newest tab writes nothing.
- */
-export function planModelAutoSaves(
+/** At most one autosave per timer key; a suspended or paused tab pauses its whole key. */
+export function planAutoSaves(
   state: AppState,
-  heldKeys: ReadonlySet<string>,
-  editSeqOf: (fileId: string) => number
+  isPaused: (file: OpenFile) => boolean
 ): Map<string, PlannedAutoSave> {
-  const newestByKey = new Map<string, OpenFile>()
+  const holdersByKey = new Map<string, OpenFile[]>()
   for (const file of state.openFiles.filter((tab) => holdsAutosaveDraft(state, tab))) {
-    const key = editorSaveKeyOfFile(state, file)
-    const newest = newestByKey.get(key)
-    if (!newest || editSeqOf(file.id) > editSeqOf(newest.id)) {
-      newestByKey.set(key, file)
-    }
+    const key = editorScheduleKeyOfFile(state, file)
+    holdersByKey.set(key, [...(holdersByKey.get(key) ?? []), file])
   }
   const plans = new Map<string, PlannedAutoSave>()
-  for (const [key, file] of newestByKey) {
-    const draft = state.editorDrafts[file.id]
-    // Why: suspension holds until the user picks a side via the banner (or saves manually).
-    if (draft !== undefined && !heldKeys.has(key) && !isAutosaveSuspendedForFile(file)) {
-      plans.set(key, { fileId: file.id, draft })
+  for (const [key, holders] of holdersByKey) {
+    if (holders.some((file) => isAutosaveSuspendedForFile(file) || isPaused(file))) {
+      continue
     }
+    plans.set(key, {
+      fileId: holders[0].id,
+      drafts: holders.map((file) => state.editorDrafts[file.id] ?? ''),
+      liveModel: sharesCodeViewModel(state, holders[0])
+    })
   }
   return plans
 }
 
-export type DraftEditOrder = {
-  /** Records which drafts changed since the last call; cheap when `editorDrafts` is unchanged. */
-  note: (drafts: AppState['editorDrafts']) => void
-  seqOf: (fileId: string) => number
-}
-
-/** Orders draft edits, so a model's newest text is known without per-tab timers racing. */
-export function createDraftEditOrder(): DraftEditOrder {
-  let counter = 0
-  let last: AppState['editorDrafts'] = {}
-  const seq = new Map<string, number>()
-  return {
-    note: (drafts) => {
-      if (drafts === last) {
-        return
-      }
-      for (const [id, draft] of Object.entries(drafts)) {
-        if (last[id] !== draft) {
-          seq.set(id, ++counter)
-        }
-      }
-      for (const id of seq.keys()) {
-        if (drafts[id] === undefined) {
-          seq.delete(id)
-        }
-      }
-      last = drafts
-    },
-    seqOf: (fileId) => seq.get(fileId) ?? 0
-  }
+export function samePlannedAutoSave(a: PlannedAutoSave | undefined, b: PlannedAutoSave): boolean {
+  return (
+    a !== undefined &&
+    a.fileId === b.fileId &&
+    a.liveModel === b.liveModel &&
+    a.drafts.length === b.drafts.length &&
+    a.drafts.every((draft, index) => draft === b.drafts[index])
+  )
 }
 
 /**

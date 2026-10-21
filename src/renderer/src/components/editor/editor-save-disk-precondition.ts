@@ -32,7 +32,7 @@ export function editorTabModelUri(state: AppState, file: OpenFile): string {
 }
 
 /** Whether the tab edits its Monaco model directly; rich, notebook, CSV and preview views don't. */
-function isCodeViewTab(state: AppState, file: OpenFile): boolean {
+export function isCodeViewTab(state: AppState, file: OpenFile): boolean {
   // Why: the Changes view renders its own diff model, not the shared text model.
   if (file.mode !== 'edit' || state.editorViewMode?.[file.id] === 'changes') {
     return false

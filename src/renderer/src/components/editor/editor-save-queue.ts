@@ -11,12 +11,15 @@ import {
 } from './editor-autosave'
 import { flushPendingEditorBuffer, hasPendingEditorBufferChange } from './editor-pending-flush'
 import {
-  createDraftEditOrder,
   editorSaveKeyOfFile,
-  planModelAutoSaves,
+  editorScheduleKeyOfFile,
+  planAutoSaves,
+  samePlannedAutoSave,
+  sharedModelAutosaveText,
+  sharesCodeViewModel,
   type PlannedAutoSave
 } from './editor-model-autosave-plan'
-import { settleModelSiblingsAfterWrite } from './editor-model-sibling-settle'
+import { currentTabText, settleCodeViewSiblingsAfterWrite } from './editor-model-sibling-settle'
 import { createAutoSaveHolds } from './editor-autosave-holds'
 import {
   clearSelfWrite,
@@ -64,16 +67,18 @@ export type EditorSaveKeys = {
   schedule: (state: AppState, fileId: string) => string
 }
 
-// Why keyed by model: sibling tabs share one text and baseline, so their saves run in turn, under
-// one timer and one generation, and one workspace's quiesce or Discard cancels the other's write.
-function saveKeyOfFileId(state: AppState, fileId: string): string {
-  const file = state.openFiles.find((openFile) => openFile.id === fileId)
-  return file ? editorSaveKeyOfFile(state, file) : fileId
+function keyOfFileId(keyOf: (state: AppState, file: OpenFile) => string) {
+  return (state: AppState, fileId: string): string => {
+    const file = state.openFiles.find((openFile) => openFile.id === fileId)
+    return file ? keyOf(state, file) : fileId
+  }
 }
 
+// Why: tabs of one model share text and baseline, so saves run in turn; code-view tabs also share
+// one timer and generation, so one workspace's quiesce or Discard cancels the other's autosave.
 export const EDITOR_SAVE_KEYS: EditorSaveKeys = {
-  queue: saveKeyOfFileId,
-  schedule: saveKeyOfFileId
+  queue: keyOfFileId(editorSaveKeyOfFile),
+  schedule: keyOfFileId(editorScheduleKeyOfFile)
 }
 
 // Why: keeping the save queue, quiesce coordination, and the debounce timers that feed it together avoids split-brain saves.
@@ -85,7 +90,11 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
   const saveGeneration = new Map<string, number>()
   // Why per tab too: another tab's quiesce must cancel this model's autosave, not the user's own save.
   const tabSaveGeneration = new Map<string, number>()
-  const editOrder = createDraftEditOrder()
+  // Draft a tab held when another tab's write left it unverifiable; autosave skips it until it changes.
+  const unverifiedDrafts = new Map<string, string>()
+  const isUnverified = (file: OpenFile): boolean =>
+    unverifiedDrafts.has(file.id) &&
+    unverifiedDrafts.get(file.id) === store.getState().editorDrafts[file.id]
   // Keyed by `keys.queue`.
   const saveQueue = new Map<string, Promise<EditorSaveResult>>()
 
@@ -98,7 +107,7 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
     autoSaveScheduled.delete(key)
   }
 
-  const holds = createAutoSaveHolds(store.getState, clearScheduledAutoSave, () => syncAutoSave())
+  const holds = createAutoSaveHolds(store.getState, () => syncAutoSave())
 
   const clearAutoSaveTimer = (fileId: string): void => clearScheduledAutoSave(scheduleKeyOf(fileId))
 
@@ -161,14 +170,18 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
         }
 
         flushPendingEditorBuffer(store.getState(), file.id, trigger === 'autosave')
-        const contentToSave = store.getState().editorDrafts[file.id] ?? fallbackContent
-        editOrder.note(store.getState().editorDrafts)
-        const editSeq = editOrder.seqOf(file.id)
+        // Why: another code-view tab's stored draft may be a stale snapshot; the model is current.
+        const sharedModel = trigger === 'autosave' && sharesCodeViewModel(state, liveFile)
+        const contentToSave = sharedModel
+          ? sharedModelAutosaveText(store.getState(), liveFile)
+          : (store.getState().editorDrafts[file.id] ?? fallbackContent)
         if (
-          trigger === 'autosave' &&
-          ((hasPendingEditorBufferChange(store.getState(), file.id) &&
-            liveFile.lastKnownDiskSignature === getDiskBaselineSignature(contentToSave)) ||
-            holds.heldKeys().has(scheduleKey))
+          contentToSave === undefined ||
+          (trigger === 'autosave' &&
+            ((hasPendingEditorBufferChange(store.getState(), file.id) &&
+              liveFile.lastKnownDiskSignature === getDiskBaselineSignature(contentToSave)) ||
+              isUnverified(liveFile) ||
+              holds.heldKeys().has(queueKey)))
         ) {
           return 'failed'
         }
@@ -223,17 +236,15 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
 
         // Why before the superseded check: disk holds this text either way, so the next save compares against it.
         rebaselineAfterEditorWrite(store.getState(), file.id, contentToSave)
-        settleModelSiblingsAfterWrite(
-          store.getState(),
-          { fileId: file.id, key: scheduleKey, content: contentToSave, editSeq },
-          editOrder.seqOf
-        )
         if (generationOf() !== queuedGeneration) {
           return 'written'
         }
 
         const nextState = store.getState()
-        const currentDraft = nextState.editorDrafts[file.id]
+        for (const tab of settleCodeViewSiblingsAfterWrite(nextState, liveFile, contentToSave)) {
+          unverifiedDrafts.set(tab.id, nextState.editorDrafts[tab.id] ?? '')
+        }
+        const currentDraft = currentTabText(nextState, liveFile)
         const stillDirty =
           (currentDraft !== undefined && currentDraft !== contentToSave) ||
           hasPendingEditorBufferChange(nextState, file.id)
@@ -279,14 +290,15 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
 
   const syncAutoSave = (): void => {
     const state = store.getState()
-    editOrder.note(state.editorDrafts)
     const plans = state.settings?.editorAutoSave
-      ? planModelAutoSaves(state, holds.heldKeys(), editOrder.seqOf)
+      ? planAutoSaves(
+          state,
+          (file) => isUnverified(file) || holds.heldKeys().has(editorSaveKeyOfFile(state, file))
+        )
       : new Map<string, PlannedAutoSave>()
     for (const key of Array.from(autoSaveTimers.keys())) {
-      const scheduled = autoSaveScheduled.get(key)
       const plan = plans.get(key)
-      if (plan?.fileId !== scheduled?.fileId || plan?.draft !== scheduled?.draft) {
+      if (!plan || !samePlannedAutoSave(autoSaveScheduled.get(key), plan)) {
         clearScheduledAutoSave(key)
       }
     }
@@ -300,19 +312,10 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
       const timerId = window.setTimeout(() => {
         autoSaveTimers.delete(key)
         autoSaveScheduled.delete(key)
-        // Why: a sibling's delayed rich/CSV text may be newer; flushing it re-plans (and re-arms).
-        const state = store.getState()
-        for (const tab of state.openFiles) {
-          if (tab.id !== plan.fileId && editorSaveKeyOfFile(state, tab) === key) {
-            flushPendingEditorBuffer(store.getState(), tab.id, true)
-          }
-        }
-        if (autoSaveTimers.has(key)) {
-          return
-        }
         const file = store.getState().openFiles.find((openFile) => openFile.id === plan.fileId)
         if (file) {
-          void queueSave(file, plan.draft, 'autosave').catch((error) => {
+          // Why fallback: queueSave re-reads the draft (or, for a shared model, its live text).
+          void queueSave(file, plan.drafts[0], 'autosave').catch((error) => {
             console.error('[editor] autosave failed', error)
           })
         }
@@ -328,6 +331,7 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
     autoSaveScheduled.clear()
     saveQueue.clear()
     saveGeneration.clear()
+    unverifiedDrafts.clear()
     tabSaveGeneration.clear()
   }
 

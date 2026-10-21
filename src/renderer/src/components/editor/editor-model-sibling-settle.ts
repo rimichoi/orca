@@ -1,38 +1,42 @@
 import type { AppState } from '@/store'
-import { getWrittenContentDiskSignature } from '../../../../shared/disk-baseline-signature'
+import type { OpenFile } from '@/store/slices/editor'
 import { notifyEditorFileCacheStale } from './editor-autosave'
 import { hasPendingEditorBufferChange } from './editor-pending-flush'
-import { editorSaveKeyOfFile, holdsAutosaveDraft } from './editor-model-autosave-plan'
+import { editorModelSiblingTabs } from './editor-save-disk-precondition'
+import { readLiveModelText, sharesCodeViewModel } from './editor-model-autosave-plan'
 
 /**
- * After a model write, other dirty tabs of the model: one holding the written text is now clean;
- * one whose different text is older than the saved tab's gets the changed-on-disk banner, so it can
- * never autosave over the newer write. A tab edited later keeps its newer text and its own autosave.
+ * Code-view tabs show the one model, so once disk holds the model's text they are all clean, even
+ * one whose stored draft is a stale snapshot from before it unmounted (it would revert the model on
+ * remount). Without a live model, only a tab whose own draft was written is clean; the others are
+ * returned, since their different drafts can't be told stale from newer.
  */
-export function settleModelSiblingsAfterWrite(
+export function settleCodeViewSiblingsAfterWrite(
   state: AppState,
-  written: { fileId: string; key: string; content: string; editSeq: number },
-  seqOf: (fileId: string) => number
-): void {
-  for (const tab of state.openFiles) {
-    if (
-      tab.id === written.fileId ||
-      !holdsAutosaveDraft(state, tab) ||
-      hasPendingEditorBufferChange(state, tab.id) ||
-      editorSaveKeyOfFile(state, tab) !== written.key
-    ) {
+  file: OpenFile,
+  written: string
+): OpenFile[] {
+  const live = readLiveModelText(state, file)
+  const unverified: OpenFile[] = []
+  for (const tab of editorModelSiblingTabs(state, file)) {
+    if (tab.id === file.id || !tab.isDirty || hasPendingEditorBufferChange(state, tab.id)) {
       continue
     }
-    if (state.editorDrafts[tab.id] !== written.content) {
-      if (seqOf(tab.id) < written.editSeq) {
-        state.setExternalMutation(tab.id, 'changed')
+    if ((live ?? state.editorDrafts[tab.id]) !== written) {
+      if (live === undefined) {
+        unverified.push(tab)
       }
       continue
     }
-    state.setLastKnownDiskSignature(tab.id, getWrittenContentDiskSignature(written.content))
     state.markFileDirty(tab.id, false)
     state.clearEditorDraft(tab.id)
-    state.clearPendingDiskBaselineVerification(tab.id)
     notifyEditorFileCacheStale(tab.id)
   }
+  return unverified
+}
+
+/** The text `file` shows now: a shared code-view model's live text, else its own draft. */
+export function currentTabText(state: AppState, file: OpenFile): string | undefined {
+  const draft = state.editorDrafts[file.id]
+  return sharesCodeViewModel(state, file) ? (readLiveModelText(state, file) ?? draft) : draft
 }

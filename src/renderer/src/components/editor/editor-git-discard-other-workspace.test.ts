@@ -135,7 +135,7 @@ it('a watcher notice alone does not lift the hold before git finishes', async ()
 })
 
 it('a failed discard releases the hold at once, so autosave resumes', async () => {
-  const { disk, cleanup, writes } = setup(['wt-1', 'wt-2'])
+  const { disk, cleanup, writes } = setup(['wt-1'])
   try {
     await discard(disk, { gitMs: 100, fails: true })
     await vi.advanceTimersByTimeAsync(1_000)
@@ -146,19 +146,26 @@ it('a failed discard releases the hold at once, so autosave resumes', async () =
   }
 })
 
-it('a hold never released fails closed after the backstop: banner, no write', async () => {
-  const { disk, store, cleanup, writes } = setup(['wt-1', 'wt-2'])
+it('a discard slower than the backstop: banner, and no autosave from any tab until release', async () => {
+  const { disk, store, ids, edit, cleanup, writes } = setup(['wt-1', 'wt-2'])
   try {
-    await requestEditorSaveQuiesce(DISCARD_TARGET)
-    await vi.advanceTimersByTimeAsync(119_000)
-    expect(writes()).toBe(0)
-    await vi.advanceTimersByTimeAsync(10_000)
+    const release = await requestEditorSaveQuiesce(DISCARD_TARGET)
+    await vi.advanceTimersByTimeAsync(130_000)
     expect(writes()).toBe(0)
     expect(store.getState().openFiles.map((file) => file.externalMutation)).toEqual([
       'changed',
       'changed'
     ])
-    expect(disk.files.get('/repo/a.ts')).toBe('saved change')
+    // Even a tab whose banner was dismissed stays held while git's outcome is unknown.
+    store.getState().setExternalMutation(ids[1], null)
+    edit(ids[1], 'typed while git is still running')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(writes()).toBe(0)
+    disk.files.set('/repo/a.ts', 'HEAD')
+    notifyEditorExternalFileChange(DISCARD_TARGET)
+    release()
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(disk.files.get('/repo/a.ts')).toBe('HEAD')
   } finally {
     cleanup()
   }

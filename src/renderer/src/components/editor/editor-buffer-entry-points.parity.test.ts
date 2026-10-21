@@ -5,7 +5,7 @@ import { needsSavePromptOnClose } from '@/store/slices/editor/buffers/editor-buf
 import type { EditorBufferViewIndex } from '@/store/slices/editor/buffers/editor-buffer-views'
 import { restartSaveTargets } from './editor-autosave-state-projections'
 import { EDITOR_SAVE_KEYS } from './editor-save-queue'
-import { editorTabModelUri } from './editor-save-disk-precondition'
+import { editorTabModelUri, isCodeViewTab } from './editor-save-disk-precondition'
 import {
   flushPendingEditorBuffer,
   hasPendingEditorBufferChange,
@@ -71,13 +71,15 @@ describe('editor buffer entry points return the per-tab answer', () => {
     expect(restartSaveTargets(state)).toEqual(state.openFiles.filter((file) => file.isDirty))
   })
 
-  // Why: since 1b-3 the autosave timer and save generation follow the model, like the queue.
-  it.each(IDS)('save keys for %s are the model URI for queue and timer', (id) => {
+  // Why: since 1b-3 code-view tabs of one model also share the autosave timer and generation.
+  it.each(IDS)('save keys for %s: model URI queue, code-view model timer', (id) => {
     const state = seed()
     const file = state.openFiles.find((candidate) => candidate.id === id)
     const modelKey = file?.mode === 'edit' ? editorTabModelUri(state, file) : id
     expect(EDITOR_SAVE_KEYS.queue(state, id)).toBe(modelKey)
-    expect(EDITOR_SAVE_KEYS.schedule(state, id)).toBe(modelKey)
+    expect(EDITOR_SAVE_KEYS.schedule(state, id)).toBe(
+      file && isCodeViewTab(state, file) ? modelKey : id
+    )
   })
 
   it.each([
