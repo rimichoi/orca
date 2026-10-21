@@ -16442,6 +16442,9 @@
             },
             "sectionStale": {
               "notice": "This file changed on disk since this section loaded."
+            },
+            "divergentDrafts": {
+              "notice": "Autosave is paused because another tab of this file has different unsaved edits. Save the version you want to keep."
             }
           }
         },

@@ -71,12 +71,13 @@ describe('editor buffer entry points return the per-tab answer', () => {
     expect(restartSaveTargets(state)).toEqual(state.openFiles.filter((file) => file.isDirty))
   })
 
-  it.each(IDS)('save keys for %s equal the model URI queue and the tab-id timer', (id) => {
+  // Why: since 1b-3 the autosave timer and save generation follow the model, like the queue.
+  it.each(IDS)('save keys for %s are the model URI for queue and timer', (id) => {
     const state = seed()
     const file = state.openFiles.find((candidate) => candidate.id === id)
-    const oldQueueKey = file?.mode === 'edit' ? editorTabModelUri(state, file) : id
-    expect(EDITOR_SAVE_KEYS.queue(state, id)).toBe(oldQueueKey)
-    expect(EDITOR_SAVE_KEYS.schedule(state, id)).toBe(id)
+    const modelKey = file?.mode === 'edit' ? editorTabModelUri(state, file) : id
+    expect(EDITOR_SAVE_KEYS.queue(state, id)).toBe(modelKey)
+    expect(EDITOR_SAVE_KEYS.schedule(state, id)).toBe(modelKey)
   })
 
   it.each([

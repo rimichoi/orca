@@ -4,14 +4,18 @@ import type { OpenFile } from '@/store/slices/editor'
 import { findWorktreeById } from '@/store/slices/worktree-helpers'
 import { getEditorFileOperationContext } from '@/lib/editor-file-operation-owner'
 import {
-  canAutoSaveOpenFile,
   isAutosaveSuspendedForFile,
   normalizeAutoSaveDelayMs,
   ORCA_EDITOR_FILE_SAVED_EVENT,
   type EditorFileSavedDetail
 } from './editor-autosave'
 import { flushPendingEditorBuffer, hasPendingEditorBufferChange } from './editor-pending-flush'
-import { editorBufferIdOfView } from '@/store/slices/editor/buffers/editor-buffer-views'
+import {
+  editorSaveKeyOfFile,
+  hasDivergentModelDraft,
+  planModelAutoSaves,
+  type PlannedAutoSave
+} from './editor-model-autosave-plan'
 import {
   clearSelfWrite,
   recordSelfWrite,
@@ -46,6 +50,9 @@ export type EditorSaveQueue = {
   quiesceFileSave: (fileId: string) => Promise<void>
   clearAutoSaveTimer: (fileId: string) => void
   bumpSaveGeneration: (fileId: string) => void
+  /** Pauses autosave for these save keys until released (or a safety timeout lapses). */
+  holdAutoSave: (keys: Iterable<string>) => void
+  releaseAutoSaveHold: (keys: Iterable<string>) => void
   syncAutoSave: () => void
   dispose: () => void
 }
@@ -56,22 +63,29 @@ export type EditorSaveKeys = {
   schedule: (state: AppState, fileId: string) => string
 }
 
-export const EDITOR_SAVE_KEYS: EditorSaveKeys = {
-  // Why keyed by model: sibling tabs share one text and baseline, so their saves must run in turn.
-  queue: (state, fileId) => {
-    const file = state.openFiles.find((openFile) => openFile.id === fileId)
-    return file?.mode === 'edit' ? editorTabModelUri(state, file) : fileId
-  },
-  schedule: (state, fileId) => editorBufferIdOfView(state, fileId)
+// Why keyed by model: sibling tabs share one text and baseline, so their saves run in turn, under
+// one timer and one generation, and one workspace's quiesce or Discard cancels the other's write.
+function saveKeyOfFileId(state: AppState, fileId: string): string {
+  const file = state.openFiles.find((openFile) => openFile.id === fileId)
+  return file ? editorSaveKeyOfFile(state, file) : fileId
 }
+
+export const EDITOR_SAVE_KEYS: EditorSaveKeys = {
+  queue: saveKeyOfFileId,
+  schedule: saveKeyOfFileId
+}
+
+// Why: a failed git discard never sends the change notice that releases its hold.
+const AUTOSAVE_HOLD_TIMEOUT_MS = 15_000
 
 // Why: keeping the save queue, quiesce coordination, and the debounce timers that feed it together avoids split-brain saves.
 export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
   const keys = EDITOR_SAVE_KEYS
   // Keyed by `keys.schedule`.
   const autoSaveTimers = new Map<string, number>()
-  const autoSaveScheduledContent = new Map<string, string>()
+  const autoSaveScheduled = new Map<string, PlannedAutoSave>()
   const saveGeneration = new Map<string, number>()
+  const autoSaveHolds = new Map<string, number>()
   // Keyed by `keys.queue`.
   const saveQueue = new Map<string, Promise<EditorSaveResult>>()
 
@@ -84,7 +98,7 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
       window.clearTimeout(timerId)
       autoSaveTimers.delete(key)
     }
-    autoSaveScheduledContent.delete(key)
+    autoSaveScheduled.delete(key)
   }
 
   const clearAutoSaveTimer = (fileId: string): void => clearScheduledAutoSave(scheduleKeyOf(fileId))
@@ -147,8 +161,10 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
         const contentToSave = store.getState().editorDrafts[file.id] ?? fallbackContent
         if (
           trigger === 'autosave' &&
-          hasPendingEditorBufferChange(store.getState(), file.id) &&
-          liveFile.lastKnownDiskSignature === getDiskBaselineSignature(contentToSave)
+          ((hasPendingEditorBufferChange(store.getState(), file.id) &&
+            liveFile.lastKnownDiskSignature === getDiskBaselineSignature(contentToSave)) ||
+            autoSaveHolds.has(scheduleKey) ||
+            hasDivergentModelDraft(store.getState(), liveFile, contentToSave))
         ) {
           return 'failed'
         }
@@ -254,67 +270,66 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
 
   const syncAutoSave = (): void => {
     const state = store.getState()
-    const openFilesByKey = new Map(
-      state.openFiles.map((file) => [keys.schedule(state, file.id), file])
-    )
-
+    const plans = state.settings?.editorAutoSave
+      ? planModelAutoSaves(state, new Set(autoSaveHolds.keys()))
+      : new Map<string, PlannedAutoSave>()
     for (const key of Array.from(autoSaveTimers.keys())) {
-      const file = openFilesByKey.get(key)
-      const draft = file ? state.editorDrafts[file.id] : undefined
-      const shouldKeepTimer =
-        state.settings?.editorAutoSave &&
-        file &&
-        file.isDirty &&
-        canAutoSaveOpenFile(file) &&
-        // Why: suspension holds until the user picks a side via the banner (or saves manually).
-        !isAutosaveSuspendedForFile(file) &&
-        draft !== undefined
-      if (!shouldKeepTimer) {
+      const scheduled = autoSaveScheduled.get(key)
+      const plan = plans.get(key)
+      if (plan?.fileId !== scheduled?.fileId || plan?.draft !== scheduled?.draft) {
         clearScheduledAutoSave(key)
       }
     }
 
-    if (!state.settings?.editorAutoSave) {
-      return
-    }
-
-    const autoSaveDelayMs = normalizeAutoSaveDelayMs(state.settings.editorAutoSaveDelayMs)
-    for (const file of state.openFiles) {
-      const key = keys.schedule(state, file.id)
-      const draft = state.editorDrafts[file.id]
-      if (
-        !file.isDirty ||
-        draft === undefined ||
-        !canAutoSaveOpenFile(file) ||
-        isAutosaveSuspendedForFile(file)
-      ) {
-        clearScheduledAutoSave(key)
+    const autoSaveDelayMs = normalizeAutoSaveDelayMs(state.settings?.editorAutoSaveDelayMs)
+    for (const [key, plan] of plans) {
+      if (autoSaveTimers.has(key)) {
         continue
       }
-
-      if (autoSaveTimers.has(key) && autoSaveScheduledContent.get(key) === draft) {
-        continue
-      }
-
-      clearScheduledAutoSave(key)
-      autoSaveScheduledContent.set(key, draft)
+      autoSaveScheduled.set(key, plan)
       const timerId = window.setTimeout(() => {
         autoSaveTimers.delete(key)
-        autoSaveScheduledContent.delete(key)
-        void queueSave(file, draft, 'autosave').catch((error) => {
-          console.error('[editor] autosave failed', error)
-        })
+        autoSaveScheduled.delete(key)
+        const file = store.getState().openFiles.find((openFile) => openFile.id === plan.fileId)
+        if (file) {
+          void queueSave(file, plan.draft, 'autosave').catch((error) => {
+            console.error('[editor] autosave failed', error)
+          })
+        }
       }, autoSaveDelayMs)
       autoSaveTimers.set(key, timerId)
     }
   }
 
+  const releaseAutoSaveHold = (keys: Iterable<string>): void => {
+    let released = false
+    for (const key of keys) {
+      window.clearTimeout(autoSaveHolds.get(key))
+      released = autoSaveHolds.delete(key) || released
+    }
+    if (released) {
+      syncAutoSave()
+    }
+  }
+
+  const holdAutoSave = (keys: Iterable<string>): void => {
+    for (const key of keys) {
+      window.clearTimeout(autoSaveHolds.get(key))
+      clearScheduledAutoSave(key)
+      autoSaveHolds.set(
+        key,
+        window.setTimeout(() => releaseAutoSaveHold([key]), AUTOSAVE_HOLD_TIMEOUT_MS)
+      )
+    }
+  }
+
   const dispose = (): void => {
-    for (const timerId of autoSaveTimers.values()) {
+    for (const timerId of [...autoSaveTimers.values(), ...autoSaveHolds.values()]) {
       window.clearTimeout(timerId)
     }
     autoSaveTimers.clear()
-    autoSaveScheduledContent.clear()
+    autoSaveScheduled.clear()
+    autoSaveHolds.clear()
     saveQueue.clear()
     saveGeneration.clear()
   }
@@ -324,6 +339,8 @@ export function createEditorSaveQueue(store: AppStoreApi): EditorSaveQueue {
     quiesceFileSave,
     clearAutoSaveTimer,
     bumpSaveGeneration,
+    holdAutoSave,
+    releaseAutoSaveHold,
     syncAutoSave,
     dispose
   }

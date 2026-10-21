@@ -677,13 +677,13 @@ describe('attachEditorAutosaveController', () => {
     })
 
     const openFiles = store.getState().openFiles
-    const originalMap = openFiles.map.bind(openFiles)
+    const originalFilter = openFiles.filter.bind(openFiles)
     let mapCalls = 0
-    Object.defineProperty(openFiles, 'map', {
+    Object.defineProperty(openFiles, 'filter', {
       configurable: true,
-      value: (...args: Parameters<typeof openFiles.map>) => {
+      value: (...args: Parameters<typeof openFiles.filter>) => {
         mapCalls += 1
-        return originalMap(...args)
+        return originalFilter(...args)
       }
     })
 
